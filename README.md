@@ -35,7 +35,7 @@ A seção "Shows perto de você" (aba Explorar) usa a API de eventos do Ticketma
 
 O limite grátis é de 5.000 buscas por dia; cada busca de shows da Lyra gasta umas 20 e fica guardada no aparelho por 6 horas. A chave fica visível no site (é feita para isso) e só permite ler eventos.
 
-O Ticketmaster não diz quem toca em cada dia dos festivais. Esses line-ups ficam em [`src/data/lineups.ts`](src/data/lineups.ts), com a fonte de cada um: quando sair um anúncio novo, é só editar lá.
+O Ticketmaster não diz quem toca em cada dia dos festivais. Esses line-ups ficam em [`src/data/lineups.ts`](src/data/lineups.ts), com a fonte de cada um: quando sair um anúncio novo, é só editar lá. Também ficam lá a arte certa de cada edição e os festivais que o Ticketmaster não vende (como o Primavera Sound, que é da Ingresse).
 
 ## Desenvolvimento
 
