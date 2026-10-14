@@ -212,9 +212,9 @@ export default function App() {
       {hasConcerts() && (
         <p>
           {t(
-            'Em "Shows perto de você", só a sua região (arredondada) e nomes de artistas vão para o Ticketmaster, sem nada que identifique você.',
-            'In "Gigs near you", only your area (rounded) and artist names are sent to Ticketmaster, with nothing that identifies you.',
-            'En "Conciertos cerca de ti", solo tu zona (redondeada) y nombres de artistas se envían a Ticketmaster, sin nada que te identifique.',
+            'O Ticketmaster recebe só a região e nomes de artistas',
+            'Ticketmaster only gets your area and artist names',
+            'Ticketmaster solo recibe tu zona y nombres de artistas',
           )}
         </p>
       )}

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Dataset } from '../data/types'
 import { ConcertError, findCity, hereNow, nearbyConcerts, type Concert, type Place } from '../data/concerts'
+import { norm } from '../data/search'
 import { Section } from './blocks'
 import { Failed, Loading } from './ExploreParts'
 import { ExternalIcon, PinIcon } from './icons'
@@ -40,14 +41,7 @@ export function Concerts({ data }: { data: Dataset }) {
     setSaved(s)
   }
   return (
-    <Section
-      title={t('Shows perto de você', 'Gigs near you', 'Conciertos cerca de ti')}
-      note={t(
-        'Artistas que você ouve com show marcado e os festivais da sua região. Dados do Ticketmaster.',
-        'Artists you listen to with gigs coming up, plus festivals near you. Data from Ticketmaster.',
-        'Artistas que escuchas con conciertos próximos y los festivales de tu zona. Datos de Ticketmaster.',
-      )}
-    >
+    <Section title={t('Shows perto de você', 'Gigs near you', 'Conciertos cerca de ti')}>
       <div className="card">
         {saved ? (
           <Nearby data={data} saved={saved} onChange={choose} />
@@ -111,12 +105,11 @@ function PlacePicker({ onPick }: { onPick: (p: Place) => void }) {
           search()
         }}
       >
-        <label htmlFor="gig-city">{t('ou digite a cidade', 'or type your city', 'o escribe tu ciudad')}</label>
         <div className="search-row">
           <input
-            id="gig-city"
             value={city}
-            placeholder={t('Ex.: Curitiba', 'E.g. Manchester', 'Ej.: Valencia')}
+            aria-label={t('Cidade', 'City', 'Ciudad')}
+            placeholder={t('ou digite a cidade', 'or type your city', 'o escribe tu ciudad')}
             enterKeyHint="search"
             autoComplete="address-level2"
             onChange={(e) => setCity(e.target.value)}
@@ -129,9 +122,9 @@ function PlacePicker({ onPick }: { onPick: (p: Place) => void }) {
       {msg && <p className="ex-fail">{msg}</p>}
       <p className="gig-privacy">
         {t(
-          'Só a região e os nomes dos artistas vão para o Ticketmaster. Seu histórico fica neste aparelho.',
-          'Only your area and artist names are sent to Ticketmaster. Your history stays on this device.',
-          'Solo tu zona y los nombres de los artistas se envían a Ticketmaster. Tu historial se queda en este dispositivo.',
+          'Só a região e os nomes dos artistas vão para o Ticketmaster.',
+          'Only your area and artist names are sent to Ticketmaster.',
+          'Solo tu zona y los nombres de los artistas se envían a Ticketmaster.',
         )}
       </p>
     </div>
@@ -159,9 +152,7 @@ function Nearby({ data, saved, onChange }: { data: Dataset; saved: Saved; onChan
       <header className="gig-head">
         <p>
           <PinIcon />
-          <span>
-            {t('Perto de', 'Near', 'Cerca de')} <strong>{place.label}</strong>
-          </span>
+          <strong>{place.label.charAt(0).toUpperCase() + place.label.slice(1)}</strong>
           <button className="ghost" onClick={() => onChange(null)}>
             {t('Trocar', 'Change', 'Cambiar')}
           </button>
@@ -169,7 +160,7 @@ function Nearby({ data, saved, onChange }: { data: Dataset; saved: Saved; onChan
         <div className="chips" role="group" aria-label={t('Distância', 'Distance', 'Distancia')}>
           {RADII.map((r) => (
             <button key={r} className={r === radius ? 'on' : ''} onClick={() => onChange({ place, radius: r })}>
-              {t(`Até ${r} km`, `Within ${r} km`, `Hasta ${r} km`)}
+              {r} km
             </button>
           ))}
         </div>
@@ -181,9 +172,9 @@ function Nearby({ data, saved, onChange }: { data: Dataset; saved: Saved; onChan
           ) : (
             <p className="ex-fail">
               {t(
-                'Nenhum show de artistas que você ouve por aqui por enquanto. Tente uma distância maior.',
-                'No gigs from artists you listen to around here for now. Try a bigger distance.',
-                'Ningún concierto de artistas que escuchas por aquí por ahora. Prueba una distancia mayor.',
+                'Nenhum show dos seus artistas por aqui. Tente uma distância maior.',
+                'None of your artists are playing around here. Try a bigger distance.',
+                'Ninguno de tus artistas toca por aquí. Prueba una distancia mayor.',
               )}
             </p>
           )}
@@ -191,13 +182,6 @@ function Nearby({ data, saved, onChange }: { data: Dataset; saved: Saved; onChan
             <div className="gig-fests">
               <header className="card-head">
                 <h3>{t('Festivais na região', 'Festivals nearby', 'Festivales en la zona')}</h3>
-                <p>
-                  {t(
-                    'Todos os festivais de música, mesmo sem line-up anunciado. Artistas seus confirmados aparecem em destaque.',
-                    'Every music festival, even before the line-up is out. Artists of yours on the bill are highlighted.',
-                    'Todos los festivales de música, aunque no haya cartel. Tus artistas confirmados aparecen destacados.',
-                  )}
-                </p>
               </header>
               <GigList items={list.filter((c) => c.festival)} />
             </div>
@@ -245,37 +229,63 @@ function GigList({ items }: { items: Concert[] }) {
 }
 
 const noon = (d: string) => new Date(`${d}T12:00:00`)
+const THIS_YEAR = new Date().getFullYear()
 
-/** "sáb., 21 de nov. de 2026", ou "19–21 de mar. de 2027" para um festival de vários dias. */
+/** O dia já está no selo: aqui vão o dia da semana e a hora ("sáb. · 20:00"), ou o período de um festival ("19–21 de mar."). */
 function when(c: Concert): string {
   if (c.end && c.end !== c.date) {
-    const range = new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short', year: 'numeric' }).formatRange(noon(c.date), noon(c.end))
-    const n = c.days ?? 2
-    return `${range} · ${t(`${n} dias`, `${n} days`, `${n} días`)}`
+    return new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short' }).formatRange(noon(c.date), noon(c.end))
   }
-  const day = noon(c.date).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
-  return c.time ? `${day} · ${c.time.slice(0, 5)}` : day
+  const day = noon(c.date).toLocaleDateString(locale(), { weekday: 'short' })
+  // 00:00 é o horário que o Ticketmaster põe quando ainda não há um.
+  const time = c.time && !c.time.startsWith('00:00') ? c.time.slice(0, 5) : ''
+  return time ? `${day} · ${time}` : day
+}
+
+const TOUR = /\b(tour|turn[êe]|world|anos|years|ao vivo|live|experience|sessions?|ac[úu]stico|show)\b/i
+const UF = /^[A-Z]{2,3}$/
+
+/**
+ * O nome da turnê, sem o que a linha já mostra: "Djavan: 50 Anos Só Sucessos - São Paulo" → "50 Anos Só Sucessos".
+ * Tira o artista, o local e a cidade do fim; só fica quando sobra um nome de turnê de verdade.
+ */
+function tourName(c: Concert): string {
+  const artists = c.artists.map((a) => a.name)
+  const skip = new Set([...artists, c.venue, c.city].map(norm))
+  let parts = c.name
+    .split(/\s*\|\s*|:\s+|\s+[-–—]\s+/)
+    .map((p) => {
+      const a = artists.find((x) => p.toLowerCase().startsWith(`${x.toLowerCase()} `))
+      return (a ? p.slice(a.length) : p).replace(/^\s*(na|no|em|at|in|en|@)\s+/i, '').trim()
+    })
+    .filter((p) => p && !skip.has(norm(p)) && !UF.test(p))
+  // Sobrou mais de um pedaço: o último costuma ser a cidade ("… - São Paulo").
+  if (parts.length > 1) parts = parts.slice(0, -1)
+  const name = parts.join(' · ')
+  return TOUR.test(name) ? name : ''
 }
 
 function GigRow({ c }: { c: Concert }) {
   const day = noon(c.date)
+  const year = day.getFullYear()
   const names = c.artists.map((a) => a.name).join(', ')
   const where = [c.venue, c.city, c.km !== undefined ? `${Math.round(c.km)} km` : ''].filter(Boolean).join(' · ')
   const label = t(`Ingressos para ${c.name}`, `Tickets for ${c.name}`, `Entradas para ${c.name}`)
-  // Show: o artista em cima e o nome do evento embaixo. Festival: o nome do festival em cima e os seus artistas embaixo.
+  // Show: o artista em cima e a turnê embaixo. Festival: o nome do festival em cima e os seus artistas embaixo.
   const title = c.festival ? c.name : names
-  const why = c.festival ? (names ? t(`Com ${names}`, `With ${names}`, `Con ${names}`) : '') : c.name !== names ? c.name : ''
+  const why = c.festival ? (names ? t(`Com ${names}`, `With ${names}`, `Con ${names}`) : '') : tourName(c)
   return (
     <li className="ex-row">
       <span className="gig-date" aria-hidden>
         <b>{day.getDate()}</b>
         <span>{day.toLocaleDateString(locale(), { month: 'short' }).replace('.', '')}</span>
+        {year !== THIS_YEAR && <small>{year}</small>}
       </span>
       <div className="ex-body">
         <span className="ex-title">{title}</span>
         <span className="ex-sub">{when(c)}</span>
         <span className="ex-sub">{where}</span>
-        {why && <span className="ex-why">{why}</span>}
+        {why && <span className="ex-why gig-why">{why}</span>}
       </div>
       {c.url && (
         <a className="ex-link" href={c.url} target="_blank" rel="noreferrer" aria-label={label} title={label}>
