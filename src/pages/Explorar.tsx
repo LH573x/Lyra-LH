@@ -8,6 +8,8 @@ import { HeartIcon } from '../ui/icons'
 import { playPreview, unlockAudio, usePreview } from '../ui/preview'
 import { useAsync } from '../ui/useAsync'
 import { t } from '../i18n'
+import { Concerts } from '../ui/Concerts'
+import { hasConcerts } from '../data/concerts'
 
 /** A aba Explorar: músicas que você nunca ouviu, a partir do que você mais ouve. */
 export function Explorar({ data }: { data: Dataset }) {
@@ -20,6 +22,7 @@ export function Explorar({ data }: { data: Dataset }) {
         </h1>
       </section>
       <Weekly data={data} />
+      {hasConcerts() && <Concerts data={data} />}
       {top && <SimilarSection data={data} name={top.name} />}
       <SideBs data={data} />
       <Roulette data={data} />

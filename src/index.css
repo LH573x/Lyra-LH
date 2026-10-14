@@ -3480,3 +3480,70 @@ a.find-card:hover {
     width: 120px;
   }
 }
+
+/* Explorar: shows perto de você */
+.gig-pick,
+.gig {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.gig-here {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+}
+.gig-here svg,
+.gig-head svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.gig-here:disabled {
+  opacity: 0.6;
+}
+.gig-privacy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.gig-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.gig-head p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+.gig-head strong {
+  color: var(--ink);
+}
+.gig-date {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--accent);
+  line-height: 1;
+}
+.gig-date b {
+  font: 700 20px/1 var(--display);
+}
+.gig-date span {
+  margin-top: 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
