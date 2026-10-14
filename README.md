@@ -25,7 +25,7 @@ Funciona com o histórico estendido (`Streaming_History_Audio_*.json`) e com o b
 
 ## Shows perto de você: chave do Ticketmaster
 
-A seção "Shows perto de você" (aba Explorar) usa a API de eventos do Ticketmaster. Ela precisa de uma chave grátis, criada uma vez só; sem a chave, a seção fica escondida.
+A seção "Shows perto de você" (aba Explorar) usa a API de eventos do Ticketmaster. Ela usa uma chave grátis, que já está em [`src/config.ts`](src/config.ts); sem chave, a seção fica escondida. Para criar uma chave nova:
 
 1. Abra o cadastro em [developer-account.ticketmaster.com/user/register](https://developer-account.ticketmaster.com/user/register). É a **Discovery API**, aberta a qualquer pessoa; a Partner API, de venda de ingressos, não é usada.
 2. Preencha nome, empresa (pode ser `Lyra`), site da empresa (o endereço da Lyra no GitHub Pages), usuário e e-mail. Aceite os termos, marque o captcha e clique em **CREATE NEW ACCOUNT**.
