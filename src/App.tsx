@@ -26,6 +26,7 @@ import { hapticOnTaps } from './ui/haptic'
 import { useHeader } from './ui/useHeader'
 import { TabPager } from './ui/TabPager'
 import { t, useLang } from './i18n'
+import { hasConcerts } from './data/concerts'
 
 /** As abas, cada uma com a sua cor e o seu ícone. */
 const PAGES = [
@@ -201,7 +202,22 @@ export default function App() {
         {t('Fotos', 'Photos', 'Fotos')}: <a href="https://www.wikidata.org/">Wikidata</a> · {t('Capas', 'Covers', 'Portadas')}:{' '}
         <a href="https://musicbrainz.org/">MusicBrainz</a> · {t('Prévias', 'Previews', 'Avances')}:{' '}
         <a href="https://www.deezer.com/">Deezer</a>
+        {hasConcerts() && (
+          <>
+            {' '}
+            · {t('Shows', 'Gigs', 'Conciertos')}: <a href="https://www.ticketmaster.com.br/">Ticketmaster</a>
+          </>
+        )}
       </p>
+      {hasConcerts() && (
+        <p>
+          {t(
+            'Em "Shows perto de você", só a sua região (arredondada) e nomes de artistas vão para o Ticketmaster, sem nada que identifique você.',
+            'In "Gigs near you", only your area (rounded) and artist names are sent to Ticketmaster, with nothing that identifies you.',
+            'En "Conciertos cerca de ti", solo tu zona (redondeada) y nombres de artistas se envían a Ticketmaster, sin nada que te identifique.',
+          )}
+        </p>
+      )}
     </footer>
   )
 
