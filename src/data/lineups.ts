@@ -12,9 +12,34 @@ export interface Lineup {
   days: Record<string, string[]>
   /** Projetos que a pessoa pode não reconhecer pelo nome → os artistas que ela talvez já ouça. */
   also?: Record<string, string[]>
+  /** A arte da edição, quando a do Ticketmaster falta, é genérica ou é de outra coisa. */
+  art?: string
+  /** Festival que o Ticketmaster não vende: onde é e onde comprar, para aparecer mesmo assim. */
+  where?: { venue: string; lat: number; lon: number }
+  url?: string
 }
 
 export const LINEUPS: Lineup[] = [
+  {
+    // itatiaia.com.br/cultura-e-lazer/primavera-sound-sp-anuncia-line-up-por-dia-veja-quem-toca-em-cada-data (21/07/2026)
+    // Vendido pela Ingresse, não pelo Ticketmaster. A arte é a do evento na Ingresse.
+    match: 'Primavera Sound São Paulo',
+    days: {
+      '2026-12-05': [
+        'The Strokes', 'FKA twigs', 'Lily Allen', 'CMAT', 'Courtney Barnett', 'Danny L Harle', 'Nation of Language',
+        'Cara Delevingne', 'Zé Ibarra', 'John Talabot', 'Los Thuthanaka', 'Mannequin Pussy', 'Model/Actriz',
+        'Nick León', 'Black Pantera', 'Gab Ferreira', 'Johnny Hooker', 'Josyara', 'LARINHX', 'Metrika',
+      ],
+      '2026-12-06': [
+        'Gorillaz', 'Arca', 'Yung Lean', 'underscores', 'Duquesa', 'Smerz', 'ATARASHII GAKKO!', 'Ecco2k',
+        'Gaby Amarantos', 'Ebony', 'Ana Frango Elétrico', 'Machine Girl', 'Sophia Stel', 'This Is Lorelei',
+        'Carlos do Complexo', 'DJ Ramon Sucesso', 'Juana Molina', 'Julia Mestre', 'Melly', 'Paulete Lindacelva',
+      ],
+    },
+    art: 'https://kraken.ingresse.com/event/posters/93986/medium/1785522828.6346488.jpg',
+    where: { venue: 'Autódromo de Interlagos', lat: -23.7036, lon: -46.6997 },
+    url: 'https://www.ingresse.com/primavera-sound-sp-2026/',
+  },
   {
     // cnnbrasil.com.br/pop/musica/lollapalooza-2027-confira-o-line-up-completo-por-dia (14/10/2026)
     match: 'Lollapalooza Brasil',

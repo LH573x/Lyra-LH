@@ -320,20 +320,24 @@ function GigRow({ c }: { c: Concert }) {
  * e, embaixo, cada dia com quem toca, os seus artistas na frente.
  */
 function Festival({ c }: { c: Concert }) {
-  const art = c.images
+  const [broken, setBroken] = useState(false)
+  const art = broken ? undefined : c.images
+  // Várias larguras: as do Ticketmaster, sempre 16:9. Uma só: a de lineups.ts, de proporção desconhecida.
+  const sized = art?.every((i) => i.width) && art.length > 1
   const months = new Set(c.lineup?.map((d) => d.date.slice(0, 7)))
   return (
     <li className="fest">
       {art && (
-        <div className="fest-art" style={{ '--art': `url("${art[0].url}")` } as CSSProperties}>
+        <div className={sized ? 'fest-art' : 'fest-art one'} style={{ '--art': `url("${art[0].url}")` } as CSSProperties}>
           <img
             src={art[Math.min(1, art.length - 1)].url}
-            srcSet={art.map((i) => `${i.url} ${i.width}w`).join(', ')}
-            sizes="(min-width: 600px) 534px, calc(100vw - 68px)"
+            srcSet={sized ? art.map((i) => `${i.url} ${i.width}w`).join(', ') : undefined}
+            sizes={sized ? '(min-width: 600px) 534px, calc(100vw - 68px)' : undefined}
             alt=""
             loading="lazy"
             decoding="async"
             referrerPolicy="no-referrer"
+            onError={() => setBroken(true)}
           />
         </div>
       )}
