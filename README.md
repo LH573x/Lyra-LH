@@ -27,10 +27,10 @@ Funciona com o histórico estendido (`Streaming_History_Audio_*.json`) e com o b
 
 A seção "Shows perto de você" (aba Explorar) usa a API de eventos do Ticketmaster. Ela precisa de uma chave grátis, criada uma vez só; sem a chave, a seção fica escondida.
 
-1. Abra [developer.ticketmaster.com](https://developer.ticketmaster.com/) e clique em **Get Your API Key** (ou **Sign up**).
-2. Preencha nome, e-mail, usuário e senha. Em **Company Site URL** pode pôr o endereço da Lyra no GitHub Pages. Aceite os termos e confirme pelo link que chega no e-mail.
-3. Entre no site e abra **My Apps** (no menu do seu nome). Já existe um app criado automaticamente; se não houver, clique em **Add a New App** e dê qualquer nome, como "Lyra".
-4. Abra o app e copie o valor de **Consumer Key**. Esse é o código. O **Consumer Secret** não é usado.
+1. Abra o cadastro em [developer-account.ticketmaster.com/user/register](https://developer-account.ticketmaster.com/user/register). É a **Discovery API**, aberta a qualquer pessoa; a Partner API, de venda de ingressos, não é usada.
+2. Preencha nome, empresa (pode ser `Lyra`), site da empresa (o endereço da Lyra no GitHub Pages), usuário e e-mail. Aceite os termos, marque o captcha e clique em **CREATE NEW ACCOUNT**.
+3. Abra o e-mail do Ticketmaster, clique no link de acesso, crie uma senha e clique em **Save**.
+4. Clique no seu nome de usuário (canto superior direito) → **My Apps** → clique no app `<usuário>-App`, que já vem criado. Na aba **Credentials**, copie o **Consumer Key**. O Consumer Secret não é usado.
 5. Cole o código entre as aspas em [`src/config.ts`](src/config.ts): `export const TICKETMASTER_KEY = 'cole-aqui'`.
 
 O limite grátis é de 5.000 buscas por dia; cada busca de shows da Lyra gasta umas 20 e fica guardada no aparelho por 6 horas. A chave fica visível no site (é feita para isso) e só permite ler eventos.
