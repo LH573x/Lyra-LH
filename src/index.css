@@ -3532,7 +3532,8 @@ a.find-card:hover {
   align-items: center;
   justify-content: center;
   width: 48px;
-  height: 48px;
+  min-height: 48px;
+  padding: 6px 0;
   border-radius: 10px;
   background: var(--surface-2);
   color: var(--accent);
@@ -3546,6 +3547,16 @@ a.find-card:hover {
   font-size: 11px;
   text-transform: uppercase;
   color: var(--ink-2);
+}
+.gig-date small {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.gig-why {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .gig-fests {
   margin-top: 8px;
