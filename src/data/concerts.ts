@@ -2,6 +2,7 @@ import type { Dataset } from './types'
 import { norm } from './search'
 import { topArtists } from './explore'
 import { TICKETMASTER_KEY } from '../config'
+import { LINEUPS } from './lineups'
 
 /*
  * Shows perto de você: eventos de música do Ticketmaster (Discovery API) perto de um lugar,
@@ -32,12 +33,26 @@ export interface Concert {
   km?: number
   /** Os artistas do seu histórico que estão no show, do mais ouvido para o menos. */
   artists: { id: number; name: string; ms: number }[]
-  /** Festival: aparece mesmo sem artistas seus (o Ticketmaster quase nunca traz o line-up). */
+  /** Festival: aparece mesmo sem artistas seus. */
   festival?: boolean
   /** Último dia, quando o festival tem mais de um. */
   end?: string
-  /** Quantos dias o festival tem. */
-  days?: number
+  /** A arte do festival (16:9), da menor para a maior largura. */
+  images?: { url: string; width: number }[]
+  /** Quem toca em cada dia do festival, com os artistas que você mais ouve na frente. */
+  lineup?: FestDay[]
+}
+
+export interface FestDay {
+  date: string
+  acts: Act[]
+}
+
+/** Uma atração do dia. `ms`: quanto você ouviu dela (ou de `via`, quando é um projeto de um artista seu). */
+export interface Act {
+  name: string
+  ms?: number
+  via?: string
 }
 
 interface RawClass {
@@ -49,6 +64,7 @@ interface RawEvent {
   name: string
   url?: string
   classifications?: RawClass[]
+  images?: { url?: string; ratio?: string; width?: number; fallback?: boolean }[]
   dates?: { start?: { localDate?: string; localTime?: string; dateTBD?: boolean }; status?: { code?: string } }
   _embedded?: {
     venues?: { name?: string; city?: { name?: string }; location?: { latitude?: string; longitude?: string } }[]
@@ -63,11 +79,25 @@ const marksFestival = (cs: RawClass[] = []) => cs.some((c) => c.subType?.name ==
 /**
  * Festival: o Ticketmaster marca a atração (Lollapalooza, The Town) como "Festival"; alguns só têm "Festival" no nome.
  * Devolve o nome do festival (o da atração, quando tem), ou null se não for festival.
+ * Às vezes a marca está num artista (Maria Rita): um artista que você ouve, ou um título "Artista: turnê", é show.
  */
-function festivalName(ev: RawEvent): string | null {
-  const a = ev._embedded?.attractions?.find((x) => x.name && marksFestival(x.classifications))
+function festivalName(ev: RawEvent, mine: Map<string, unknown>): string | null {
+  const a = ev._embedded?.attractions?.find(
+    (x) => x.name && marksFestival(x.classifications) && !mine.has(norm(x.name)) && !ev.name.startsWith(`${x.name}:`),
+  )
   if (a) return a.name!
   return marksFestival(ev.classifications) || FESTIVAL.test(ev.name) ? ev.name : null
+}
+
+/** A arte do evento em 16:9, sem as imagens genéricas que o Ticketmaster usa quando não tem uma. */
+function art(ev: RawEvent): Concert['images'] {
+  const widths = new Set<number>()
+  const list = (ev.images ?? [])
+    .filter((i) => i.ratio === '16_9' && !i.fallback && i.width && i.url?.startsWith('https://'))
+    .sort((a, b) => a.width! - b.width!)
+    .filter((i) => !widths.has(i.width!) && widths.add(i.width!))
+    .map((i) => ({ url: i.url!, width: i.width! }))
+  return list.length ? list : undefined
 }
 interface RawPage {
   _embedded?: { events?: RawEvent[] }
@@ -174,7 +204,7 @@ const TOP = 20
 /** Páginas de 200 eventos da região (o Ticketmaster não passa de 1000 resultados por busca). */
 const PAGES = 5
 
-const CACHE_KEY = 'lyra-shows-v2'
+const CACHE_KEY = 'lyra-shows-v3'
 const CACHE_TTL = 6 * 3600_000
 
 interface Cached {
@@ -191,7 +221,9 @@ export function nearbyConcerts(d: Dataset, place: Place, radius: number): Promis
   const cacheKey = `${geohash(place.lat, place.lon)}|${radius}|${d.importedAt}`
   let p = running.get(cacheKey)
   if (!p) {
-    p = search(d, place, radius, cacheKey).finally(() => running.delete(cacheKey))
+    p = search(d, place, radius, cacheKey)
+      .then((list) => dress(list, listened(d)))
+      .finally(() => running.delete(cacheKey))
     running.set(cacheKey, p)
   }
   return p
@@ -232,7 +264,7 @@ async function search(d: Dataset, place: Place, radius: number, cacheKey: string
       const m = searched && ` ${norm(ev.name)} `.includes(` ${searched} `) ? mine.get(searched) : undefined
       if (m) artists.set(m.id, m)
     }
-    const fest = festivalName(ev)
+    const fest = festivalName(ev, mine)
     if (artists.size === 0 && !fest) return
     const v = ev._embedded?.venues?.[0]
     const lat = Number(v?.location?.latitude)
@@ -247,9 +279,16 @@ async function search(d: Dataset, place: Place, radius: number, cacheKey: string
       url: ev.url ?? '',
       km: Number.isFinite(lat) && Number.isFinite(lon) && (lat || lon) ? distance(place, lat, lon) : undefined,
       artists: [...artists.values()].sort((a, b) => b.ms - a.ms),
-      festival: fest ? true : undefined,
     })
-    if (fest) festivals.set(ev.id, fest)
+    if (!fest) return
+    festivals.set(ev.id, fest)
+    // Quando o Ticketmaster traz quem toca no dia, já é o line-up (sem a atração que é o próprio festival).
+    const acts = listed.filter((a) => !marksFestival(a.classifications)).map((a) => ({ name: a.name! }))
+    Object.assign(found.get(ev.id)!, {
+      festival: true,
+      images: art(ev),
+      lineup: acts.length ? [{ date: start.localDate, acts }] : undefined,
+    } satisfies Partial<Concert>)
   }
 
   // 1. Todos os shows de música da região, dos mais próximos no tempo aos mais distantes.
@@ -293,7 +332,7 @@ async function search(d: Dataset, place: Place, radius: number, cacheKey: string
  */
 function joinDays(list: Concert[], festivals: Map<string, string>): Concert[] {
   const out: Concert[] = []
-  const fests = new Map<string, { c: Concert; days: Set<string> }>()
+  const fests = new Map<string, Concert>()
   for (const c of [...list].sort((a, b) => a.date.localeCompare(b.date))) {
     const name = festivals.get(c.id)
     if (!c.festival || !name) {
@@ -301,23 +340,76 @@ function joinDays(list: Concert[], festivals: Map<string, string>): Concert[] {
       continue
     }
     const key = `${norm(name)}|${norm(c.venue)}`
-    const g = fests.get(key)
-    if (!g) {
-      const first = { ...c, days: 1 }
-      fests.set(key, { c: first, days: new Set([c.date]) })
+    const f = fests.get(key)
+    if (!f) {
+      const first = { ...c }
+      fests.set(key, first)
       out.push(first)
       continue
     }
-    const f = g.c
     if (c.name !== f.name) f.name = name
-    g.days.add(c.date)
-    f.days = g.days.size
     // A lista vem em ordem de data: cada dia novo só pode estender o fim.
     if (c.date > (f.end ?? f.date)) f.end = c.date
     const ids = new Set(f.artists.map((a) => a.id))
     f.artists = [...f.artists, ...c.artists.filter((a) => !ids.has(a.id))].sort((a, b) => b.ms - a.ms)
+    f.images ??= c.images
+    for (const day of c.lineup ?? []) {
+      const same = f.lineup?.find((x) => x.date === day.date)
+      if (!same) f.lineup = [...(f.lineup ?? []), day]
+      else {
+        const names = new Set(same.acts.map((a) => norm(a.name)))
+        same.acts = [...same.acts, ...day.acts.filter((a) => !names.has(norm(a.name)))]
+      }
+    }
   }
   return out
+}
+
+/**
+ * Os festivais ganham o line-up de cada dia (o de lineups.ts, quando tem) com os artistas que você mais ouve na frente;
+ * os outros seguem a ordem do cartaz. Roda depois do cache, para um line-up novo valer na hora.
+ */
+function dress(list: Concert[], mine: Map<string, { id: number; name: string; ms: number }>): Concert[] {
+  const out = list.map((c) => {
+    if (!c.festival) return c
+    const f = { ...c }
+    const name = `${norm(c.name)} `
+    const known = LINEUPS.find((l) => {
+      const first = Object.keys(l.days).sort()[0]
+      return name.startsWith(`${norm(l.match)} `) && first?.slice(0, 4) === c.date.slice(0, 4)
+    })
+    let days = (c.lineup ?? []).map((d) => ({ date: d.date, names: d.acts.map((a) => a.name) }))
+    if (known) {
+      const dates = Object.keys(known.days).sort()
+      f.name = known.title ?? c.name
+      f.date = dates[0]
+      f.end = dates.length > 1 ? dates[dates.length - 1] : undefined
+      days = dates.filter((d) => known.days[d].length).map((d) => ({ date: d, names: known.days[d] }))
+    }
+    const yours = new Map<number, { id: number; name: string; ms: number }>()
+    f.lineup = days.map(({ date, names }) => ({
+      date,
+      acts: names
+        .map((n): Act => {
+          let m = mine.get(norm(n))
+          let via: string | undefined
+          for (const other of m ? [] : (known?.also?.[n] ?? [])) {
+            const o = mine.get(norm(other))
+            // "Criolo, Amaro & Dino" já diz que é o Criolo; "TOMORA" precisa dizer que é a AURORA.
+            if (o && (!m || o.ms > m.ms)) [m, via] = [o, norm(n).includes(norm(o.name)) ? undefined : o.name]
+          }
+          if (!m) return { name: n }
+          yours.set(m.id, m)
+          return { name: n, ms: m.ms, via }
+        })
+        // sort é estável: quem você não ouve fica na ordem do cartaz.
+        .sort((a, b) => (b.ms ?? 0) - (a.ms ?? 0)),
+    }))
+    if (!f.lineup.length) f.lineup = undefined
+    f.artists = [...yours.values()].sort((a, b) => b.ms - a.ms)
+    return f
+  })
+  return out.sort((a, b) => (a.date + (a.time ?? '')).localeCompare(b.date + (b.time ?? '')))
 }
 
 /** Uma cidade digitada → ponto no mapa (Open-Meteo, sem chave). */
