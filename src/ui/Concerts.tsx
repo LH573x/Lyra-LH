@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import type { Dataset } from '../data/types'
-import { ConcertError, findCity, hereNow, nearbyConcerts, type Concert, type Place } from '../data/concerts'
+import { ConcertError, findCity, hereNow, nearbyConcerts, type Concert, type FestDay, type Place } from '../data/concerts'
 import { norm } from '../data/search'
 import { Section } from './blocks'
 import { Failed, Loading } from './ExploreParts'
@@ -11,6 +11,10 @@ import { lang, locale, t } from '../i18n'
 const PLACE_KEY = 'lyra-shows-place'
 const RADII = [50, 150, 500] as const
 const FEW = 6
+/** Festivais abertos de saída; o resto fica no "Ver todos". */
+const FEW_FESTS = 3
+/** Atrações por dia antes do "+N": todos os seus artistas e, depois deles, as maiores do cartaz. */
+const ACTS = 6
 
 function read<T>(key: string): T | null {
   try {
@@ -183,7 +187,7 @@ function Nearby({ data, saved, onChange }: { data: Dataset; saved: Saved; onChan
               <header className="card-head">
                 <h3>{t('Festivais na região', 'Festivals nearby', 'Festivales en la zona')}</h3>
               </header>
-              <GigList items={list.filter((c) => c.festival)} />
+              <GigList items={list.filter((c) => c.festival)} festivals />
             </div>
           )}
         </>
@@ -210,16 +214,17 @@ function Nearby({ data, saved, onChange }: { data: Dataset; saved: Saved; onChan
   )
 }
 
-function GigList({ items }: { items: Concert[] }) {
+function GigList({ items, festivals }: { items: Concert[]; festivals?: boolean }) {
   const [all, setAll] = useState(false)
+  const few = festivals ? FEW_FESTS : FEW
   return (
     <>
-      <ul className="ex-list">
-        {items.slice(0, all ? undefined : FEW).map((c) => (
-          <GigRow key={c.id} c={c} />
-        ))}
+      <ul className={festivals ? 'fest-list' : 'ex-list'}>
+        {items
+          .slice(0, all ? undefined : few)
+          .map((c) => (festivals ? <Festival key={c.id} c={c} /> : <GigRow key={c.id} c={c} />))}
       </ul>
-      {items.length > FEW && (
+      {items.length > few && (
         <button className="ghost ex-more" onClick={() => setAll(!all)}>
           {all ? t('Ver menos', 'Show less', 'Ver menos') : t(`Ver todos (${items.length})`, `Show all (${items.length})`, `Ver todos (${items.length})`)}
         </button>
@@ -231,15 +236,25 @@ function GigList({ items }: { items: Concert[] }) {
 const noon = (d: string) => new Date(`${d}T12:00:00`)
 const THIS_YEAR = new Date().getFullYear()
 
-/** O dia já está no selo: aqui vão o dia da semana e a hora ("sáb. · 20:00"), ou o período de um festival ("19–21 de mar."). */
+// 00:00 é o horário que o Ticketmaster põe quando ainda não há um.
+const hour = (c: Concert) => (c.time && !c.time.startsWith('00:00') ? c.time.slice(0, 5) : '')
+
+/** O dia já está no selo: aqui vão o dia da semana e a hora ("sáb. · 20:00"). */
 function when(c: Concert): string {
-  if (c.end && c.end !== c.date) {
-    return new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short' }).formatRange(noon(c.date), noon(c.end))
-  }
   const day = noon(c.date).toLocaleDateString(locale(), { weekday: 'short' })
-  // 00:00 é o horário que o Ticketmaster põe quando ainda não há um.
-  const time = c.time && !c.time.startsWith('00:00') ? c.time.slice(0, 5) : ''
-  return time ? `${day} · ${time}` : day
+  return [day, hour(c)].filter(Boolean).join(' · ')
+}
+
+/** Festival não tem selo: "19–21 de mar.", ou "sáb., 5 de dez. · 14:00" quando é um dia só. O ano, se não estiver no nome. */
+function festWhen(c: Concert): string {
+  const year = c.date.slice(0, 4)
+  const opts: Intl.DateTimeFormatOptions = {
+    day: 'numeric',
+    month: 'short',
+    year: Number(year) !== THIS_YEAR && !c.name.includes(year) ? 'numeric' : undefined,
+  }
+  if (c.end && c.end !== c.date) return new Intl.DateTimeFormat(locale(), opts).formatRange(noon(c.date), noon(c.end))
+  return [noon(c.date).toLocaleDateString(locale(), { weekday: 'short', ...opts }), hour(c)].filter(Boolean).join(' · ')
 }
 
 const TOUR = /\b(tour|turn[êe]|world|anos|years|ao vivo|live|experience|sessions?|ac[úu]stico|show)\b/i
@@ -265,15 +280,23 @@ function tourName(c: Concert): string {
   return TOUR.test(name) ? name : ''
 }
 
+const where = (c: Concert) => [c.venue, c.city, c.km !== undefined ? `${Math.round(c.km)} km` : ''].filter(Boolean)
+
+function Tickets({ c }: { c: Concert }) {
+  if (!c.url) return null
+  const label = t(`Ingressos para ${c.name}`, `Tickets for ${c.name}`, `Entradas para ${c.name}`)
+  return (
+    <a className="ex-link" href={c.url} target="_blank" rel="noreferrer" aria-label={label} title={label}>
+      <ExternalIcon />
+    </a>
+  )
+}
+
+/** Show: o artista em cima e a turnê embaixo. */
 function GigRow({ c }: { c: Concert }) {
   const day = noon(c.date)
   const year = day.getFullYear()
-  const names = c.artists.map((a) => a.name).join(', ')
-  const where = [c.venue, c.city, c.km !== undefined ? `${Math.round(c.km)} km` : ''].filter(Boolean).join(' · ')
-  const label = t(`Ingressos para ${c.name}`, `Tickets for ${c.name}`, `Entradas para ${c.name}`)
-  // Show: o artista em cima e a turnê embaixo. Festival: o nome do festival em cima e os seus artistas embaixo.
-  const title = c.festival ? c.name : names
-  const why = c.festival ? (names ? t(`Com ${names}`, `With ${names}`, `Con ${names}`) : '') : tourName(c)
+  const why = tourName(c)
   return (
     <li className="ex-row">
       <span className="gig-date" aria-hidden>
@@ -282,16 +305,89 @@ function GigRow({ c }: { c: Concert }) {
         {year !== THIS_YEAR && <small>{year}</small>}
       </span>
       <div className="ex-body">
-        <span className="ex-title">{title}</span>
+        <span className="ex-title">{c.artists.map((a) => a.name).join(', ')}</span>
         <span className="ex-sub">{when(c)}</span>
-        <span className="ex-sub">{where}</span>
+        <span className="ex-sub">{where(c).join(' · ')}</span>
         {why && <span className="ex-why gig-why">{why}</span>}
       </div>
-      {c.url && (
-        <a className="ex-link" href={c.url} target="_blank" rel="noreferrer" aria-label={label} title={label}>
-          <ExternalIcon />
-        </a>
+      <Tickets c={c} />
+    </li>
+  )
+}
+
+/**
+ * Festival: a arte ocupa a linha toda (nas telas largas, o que sobra dos lados é a própria arte, desfocada)
+ * e, embaixo, cada dia com quem toca, os seus artistas na frente.
+ */
+function Festival({ c }: { c: Concert }) {
+  const art = c.images
+  const months = new Set(c.lineup?.map((d) => d.date.slice(0, 7)))
+  return (
+    <li className="fest">
+      {art && (
+        <div className="fest-art" style={{ '--art': `url("${art[0].url}")` } as CSSProperties}>
+          <img
+            src={art[Math.min(1, art.length - 1)].url}
+            srcSet={art.map((i) => `${i.url} ${i.width}w`).join(', ')}
+            sizes="(min-width: 600px) 534px, calc(100vw - 68px)"
+            alt=""
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+          />
+        </div>
       )}
+      <div className="fest-head">
+        <div className="ex-body">
+          <span className="fest-name">{c.name}</span>
+          <div className="fest-meta dots">
+            <p>
+              {[festWhen(c), ...where(c)].map((x, i) => (
+                <span key={i}>{x}</span>
+              ))}
+            </p>
+          </div>
+        </div>
+        <Tickets c={c} />
+      </div>
+      {c.lineup && (
+        <ul className="fest-days">
+          {c.lineup.map((d) => (
+            <Day key={d.date} day={d} withMonth={months.size > 1} />
+          ))}
+        </ul>
+      )}
+    </li>
+  )
+}
+
+function Day({ day, withMonth }: { day: FestDay; withMonth: boolean }) {
+  const [all, setAll] = useState(false)
+  const yours = day.acts.filter((a) => a.ms).length
+  const shown = all ? day.acts.length : Math.max(yours, ACTS)
+  const date = noon(day.date)
+  const label = [
+    date.toLocaleDateString(locale(), { weekday: 'short' }).replace('.', ''),
+    withMonth ? date.toLocaleDateString(locale(), { day: 'numeric', month: 'numeric' }) : date.getDate(),
+  ].join(' ')
+  return (
+    <li className="fest-day">
+      <span className={yours ? 'fest-when on' : 'fest-when'}>{label}</span>
+      <div className="fest-acts dots">
+        <p>
+          {day.acts.slice(0, shown).map((a) => (
+            <span key={a.name} className={a.ms ? 'mine' : undefined}>
+              {a.name}
+              {a.via && <small> ({a.via})</small>}
+            </span>
+          ))}
+          {day.acts.length > Math.max(yours, ACTS) && (
+            <button className="fest-more" onClick={() => setAll(!all)} aria-expanded={all}>
+              {all ? t('menos', 'less', 'menos') : `+${day.acts.length - shown}`}
+            </button>
+          )}
+        </p>
+      </div>
     </li>
   )
 }

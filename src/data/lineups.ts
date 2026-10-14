@@ -1,0 +1,60 @@
+/*
+ * Line-ups por dia dos festivais grandes. O Ticketmaster vende cada dia, mas não diz quem toca:
+ * isto vem dos anúncios oficiais (fonte em cada um). Ao sair dia novo ou nome novo, é só editar aqui.
+ */
+
+export interface Lineup {
+  /** Começo do nome do festival no Ticketmaster ("Lollapalooza Brasil 2027" começa com "Lollapalooza Brasil"). */
+  match: string
+  /** Nome a mostrar, quando o do Ticketmaster não serve ("The Town Club 2027" é a pré-venda, não o festival). */
+  title?: string
+  /** Cada dia do festival e quem toca, na ordem do cartaz. Dia vazio: ainda não anunciado. */
+  days: Record<string, string[]>
+  /** Projetos que a pessoa pode não reconhecer pelo nome → os artistas que ela talvez já ouça. */
+  also?: Record<string, string[]>
+}
+
+export const LINEUPS: Lineup[] = [
+  {
+    // cnnbrasil.com.br/pop/musica/lollapalooza-2027-confira-o-line-up-completo-por-dia (14/10/2026)
+    match: 'Lollapalooza Brasil',
+    days: {
+      '2027-03-19': [
+        'Travis Scott', 'David Guetta', 'sombr', 'Cage the Elephant', 'Lola Young', 'Slayyyter', 'TOMORA',
+        'Leon Bridges', 'Angine de Poitrine', 'Snow Strippers', 'Ninajirachi', 'Die Spitz', 'Cat Dealers',
+        'Nação Zumbi', 'Fezzo', 'Majis', 'Rawayana', 'Carola & Curol', 'Make U Sweat', 'Marina Diniz',
+        'Mary Olivetti', 'El Efecto', 'Rakta', 'Deafkids',
+      ],
+      '2027-03-20': [
+        'The Killers', 'Queens of the Stone Age', 'Mochakk', 'Dominic Fike', 'Geese', 'Four Tet',
+        'Rodrigo Amarante', 'Mike D 5D', 'Sammy Virji', 'Julia Wolf', 'Midnight Generation', 'Carlita',
+        'Brime!!', 'Budang', 'Santos Bravos', 'Weird Baile', 'Grag Queen', 'Luana Flores', 'Buhr', 'Bebé',
+        'Zepelim e o Sopro do Cão', 'DJ Ramemes', 'Paira', 'Joaquim', 'DJ Tamy',
+      ],
+      '2027-03-21': [
+        'Charli xcx', 'The Neighbourhood', 'Fontaines D.C.', 'The Prodigy', 'Malcolm Todd', 'RAYE', 'ADÉLA',
+        'Marlon Hoffstadt', 'Boys Noize', 'Criolo, Amaro & Dino', 'The Avalanches', 'Violet Grohl',
+        'Boy Harsher', 'Mind Enterprises', 'Clementaum', 'Fernanda Martins', 'Acid Asian', 'Catïça',
+        'Real No Ficción', 'Núbia', 'Seu Pereira e Coletivo 401', 'Psilosamples', 'Kenya20Hz', 'Ciça Moreira',
+        'Clarissa',
+      ],
+    },
+    also: {
+      TOMORA: ['AURORA', 'The Chemical Brothers'],
+      'Mike D 5D': ['Beastie Boys'],
+      'Criolo, Amaro & Dino': ['Criolo', 'Amaro Freitas', "Dino D'Santiago"],
+    },
+  },
+  {
+    // istoe.com.br/the-town-2027-slipknot-marilyn-manson-atracoes (28/09/2026)
+    match: 'The Town',
+    title: 'The Town 2027',
+    days: {
+      '2027-09-04': ['Slipknot', 'Marilyn Manson'],
+      '2027-09-05': [],
+      '2027-09-06': [],
+      '2027-09-11': [],
+      '2027-09-12': [],
+    },
+  },
+]
