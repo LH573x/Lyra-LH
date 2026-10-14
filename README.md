@@ -20,7 +20,7 @@ Funciona com o histórico estendido (`Streaming_History_Audio_*.json`) e com o b
 | Curiosidades: calendário, relógio de escuta, plataformas, aleatório e músicas puladas | pronta |
 | Linha do tempo: top 5 de cada ano, descobertas, fases e busca | pronta |
 | Artista: horas por mês, posição em cada ano, músicas mais ouvidas | pronta |
-| Explorar: músicas novas, lado B, roleta e shows perto de você | pronta (shows: falta a chave do Ticketmaster) |
+| Explorar: músicas novas, lado B, roleta e shows perto de você | pronta |
 | Wrapped: stories para o Instagram (Top 5 do último mês, do último ano e desde sempre, e a retrospectiva de cada ano), para baixar ou compartilhar | pronta |
 
 ## Shows perto de você: chave do Ticketmaster

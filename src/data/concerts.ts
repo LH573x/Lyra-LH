@@ -190,15 +190,19 @@ async function search(d: Dataset, place: Place, radius: number, cacheKey: string
     const start = ev.dates?.start
     if (!start?.localDate) return
     const artists = new Map<number, { id: number; name: string; ms: number }>()
-    const listed = ev._embedded?.attractions ?? []
+    // Atrações sem nome também aparecem; só as com nome contam.
+    const listed = (ev._embedded?.attractions ?? []).filter((a) => a.name)
     for (const a of listed) {
-      const m = a.name ? mine.get(norm(a.name)) : undefined
+      const m = mine.get(norm(a.name!))
       if (m) artists.set(m.id, m)
     }
-    // Eventos sem atrações cadastradas: na busca pelo nome do artista, vale o nome no título do show.
+    // Eventos sem atrações com nome: vale o começo do título ("Beto Guedes | The Cavern Club")
+    // e, na busca pelo nome do artista, o nome em qualquer parte do título.
     // Com atrações e nenhuma sua (um tributo, por exemplo), não conta.
-    if (searched && listed.length === 0 && ` ${norm(ev.name)} `.includes(` ${searched} `)) {
-      const m = mine.get(searched)
+    if (listed.length === 0) {
+      const head = mine.get(norm(ev.name.split(/\s[|\-–—:]\s/)[0]))
+      if (head) artists.set(head.id, head)
+      const m = searched && ` ${norm(ev.name)} `.includes(` ${searched} `) ? mine.get(searched) : undefined
       if (m) artists.set(m.id, m)
     }
     if (artists.size === 0) return

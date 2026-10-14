@@ -4,4 +4,4 @@
  * Essa chave é feita para ficar no site (qualquer visitante a vê), então pode ficar no repositório.
  * Sem chave, a seção não aparece.
  */
-export const TICKETMASTER_KEY = ''
+export const TICKETMASTER_KEY = 'U3thVEweFkO3tMjwQklRkx7rY6DYLnpp'
