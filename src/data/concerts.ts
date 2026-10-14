@@ -32,17 +32,42 @@ export interface Concert {
   km?: number
   /** Os artistas do seu histórico que estão no show, do mais ouvido para o menos. */
   artists: { id: number; name: string; ms: number }[]
+  /** Festival: aparece mesmo sem artistas seus (o Ticketmaster quase nunca traz o line-up). */
+  festival?: boolean
+  /** Último dia, quando o festival tem mais de um. */
+  end?: string
+  /** Quantos dias o festival tem. */
+  days?: number
 }
 
+interface RawClass {
+  type?: { name?: string }
+  subType?: { name?: string }
+}
 interface RawEvent {
   id: string
   name: string
   url?: string
+  classifications?: RawClass[]
   dates?: { start?: { localDate?: string; localTime?: string; dateTBD?: boolean }; status?: { code?: string } }
   _embedded?: {
     venues?: { name?: string; city?: { name?: string }; location?: { latitude?: string; longitude?: string } }[]
-    attractions?: { name?: string }[]
+    attractions?: { name?: string; classifications?: RawClass[] }[]
   }
+}
+
+const FESTIVAL = /\bfest(ival)?\b/i
+
+const marksFestival = (cs: RawClass[] = []) => cs.some((c) => c.subType?.name === 'Festival' || c.type?.name === 'Festival')
+
+/**
+ * Festival: o Ticketmaster marca a atração (Lollapalooza, The Town) como "Festival"; alguns só têm "Festival" no nome.
+ * Devolve o nome do festival (o da atração, quando tem), ou null se não for festival.
+ */
+function festivalName(ev: RawEvent): string | null {
+  const a = ev._embedded?.attractions?.find((x) => x.name && marksFestival(x.classifications))
+  if (a) return a.name!
+  return marksFestival(ev.classifications) || FESTIVAL.test(ev.name) ? ev.name : null
 }
 interface RawPage {
   _embedded?: { events?: RawEvent[] }
@@ -149,7 +174,7 @@ const TOP = 20
 /** Páginas de 200 eventos da região (o Ticketmaster não passa de 1000 resultados por busca). */
 const PAGES = 5
 
-const CACHE_KEY = 'lyra-shows'
+const CACHE_KEY = 'lyra-shows-v2'
 const CACHE_TTL = 6 * 3600_000
 
 interface Cached {
@@ -183,6 +208,8 @@ async function search(d: Dataset, place: Place, radius: number, cacheKey: string
 
   const mine = listened(d)
   const found = new Map<string, Concert>()
+  // Id do evento → nome do festival, para juntar os dias.
+  const festivals = new Map<string, string>()
   const near = { geoPoint: geo, radius: String(radius), unit: 'km' }
 
   const add = (ev: RawEvent, searched?: string) => {
@@ -205,7 +232,8 @@ async function search(d: Dataset, place: Place, radius: number, cacheKey: string
       const m = searched && ` ${norm(ev.name)} `.includes(` ${searched} `) ? mine.get(searched) : undefined
       if (m) artists.set(m.id, m)
     }
-    if (artists.size === 0) return
+    const fest = festivalName(ev)
+    if (artists.size === 0 && !fest) return
     const v = ev._embedded?.venues?.[0]
     const lat = Number(v?.location?.latitude)
     const lon = Number(v?.location?.longitude)
@@ -219,7 +247,9 @@ async function search(d: Dataset, place: Place, radius: number, cacheKey: string
       url: ev.url ?? '',
       km: Number.isFinite(lat) && Number.isFinite(lon) && (lat || lon) ? distance(place, lat, lon) : undefined,
       artists: [...artists.values()].sort((a, b) => b.ms - a.ms),
+      festival: fest ? true : undefined,
     })
+    if (fest) festivals.set(ev.id, fest)
   }
 
   // 1. Todos os shows de música da região, dos mais próximos no tempo aos mais distantes.
@@ -243,13 +273,51 @@ async function search(d: Dataset, place: Place, radius: number, cacheKey: string
   }
 
   const today = new Date().toISOString().slice(0, 10)
-  const list = [...found.values()].filter((c) => c.date >= today).sort((a, b) => (a.date + (a.time ?? '')).localeCompare(b.date + (b.time ?? '')))
+  const list = joinDays(
+    [...found.values()].filter((c) => c.date >= today),
+    festivals,
+  ).sort((a, b) =>
+    (a.date + (a.time ?? '')).localeCompare(b.date + (b.time ?? '')),
+  )
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify({ key: cacheKey, at: Date.now(), list } satisfies Cached))
   } catch {
     // Sem espaço: busca de novo na próxima vez.
   }
   return list
+}
+
+/**
+ * Cada dia (ou setor) de um festival vem como um evento ("Lollapalooza Brasil 2027" em 19, 20 e 21 de março): vira um só.
+ * Se os nomes dos eventos forem diferentes ("Rio Carnaval 2027 - Frisas", "… - Arquibancadas"), fica o nome do festival.
+ */
+function joinDays(list: Concert[], festivals: Map<string, string>): Concert[] {
+  const out: Concert[] = []
+  const fests = new Map<string, { c: Concert; days: Set<string> }>()
+  for (const c of [...list].sort((a, b) => a.date.localeCompare(b.date))) {
+    const name = festivals.get(c.id)
+    if (!c.festival || !name) {
+      out.push(c)
+      continue
+    }
+    const key = `${norm(name)}|${norm(c.venue)}`
+    const g = fests.get(key)
+    if (!g) {
+      const first = { ...c, days: 1 }
+      fests.set(key, { c: first, days: new Set([c.date]) })
+      out.push(first)
+      continue
+    }
+    const f = g.c
+    if (c.name !== f.name) f.name = name
+    g.days.add(c.date)
+    f.days = g.days.size
+    // A lista vem em ordem de data: cada dia novo só pode estender o fim.
+    if (c.date > (f.end ?? f.date)) f.end = c.date
+    const ids = new Set(f.artists.map((a) => a.id))
+    f.artists = [...f.artists, ...c.artists.filter((a) => !ids.has(a.id))].sort((a, b) => b.ms - a.ms)
+  }
+  return out
 }
 
 /** Uma cidade digitada → ponto no mapa (Open-Meteo, sem chave). */
