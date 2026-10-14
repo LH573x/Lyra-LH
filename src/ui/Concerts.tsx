@@ -43,9 +43,9 @@ export function Concerts({ data }: { data: Dataset }) {
     <Section
       title={t('Shows perto de você', 'Gigs near you', 'Conciertos cerca de ti')}
       note={t(
-        'Artistas que você ouve com show marcado na sua região. Dados do Ticketmaster.',
-        'Artists you listen to with gigs coming up near you. Data from Ticketmaster.',
-        'Artistas que escuchas con conciertos próximos en tu zona. Datos de Ticketmaster.',
+        'Artistas que você ouve com show marcado e os festivais da sua região. Dados do Ticketmaster.',
+        'Artists you listen to with gigs coming up, plus festivals near you. Data from Ticketmaster.',
+        'Artistas que escuchas con conciertos próximos y los festivales de tu zona. Datos de Ticketmaster.',
       )}
     >
       <div className="card">
@@ -154,8 +154,6 @@ function Nearby({ data, saved, onChange }: { data: Dataset; saved: Saved; onChan
       },
     ),
   )
-  const [all, setAll] = useState(false)
-
   return (
     <div className="gig">
       <header className="gig-head">
@@ -177,28 +175,34 @@ function Nearby({ data, saved, onChange }: { data: Dataset; saved: Saved; onChan
         </div>
       </header>
       {list ? (
-        list.length > 0 ? (
-          <>
-            <ul className="ex-list">
-              {list.slice(0, all ? undefined : FEW).map((c) => (
-                <GigRow key={c.id} c={c} />
-              ))}
-            </ul>
-            {list.length > FEW && (
-              <button className="ghost ex-more" onClick={() => setAll(!all)}>
-                {all ? t('Ver menos', 'Show less', 'Ver menos') : t(`Ver todos (${list.length})`, `Show all (${list.length})`, `Ver todos (${list.length})`)}
-              </button>
-            )}
-          </>
-        ) : (
-          <p className="ex-fail">
-            {t(
-              'Nenhum show de artistas que você ouve por aqui por enquanto. Tente uma distância maior.',
-              'No gigs from artists you listen to around here for now. Try a bigger distance.',
-              'Ningún concierto de artistas que escuchas por aquí por ahora. Prueba una distancia mayor.',
-            )}
-          </p>
-        )
+        <>
+          {list.some((c) => !c.festival) ? (
+            <GigList items={list.filter((c) => !c.festival)} />
+          ) : (
+            <p className="ex-fail">
+              {t(
+                'Nenhum show de artistas que você ouve por aqui por enquanto. Tente uma distância maior.',
+                'No gigs from artists you listen to around here for now. Try a bigger distance.',
+                'Ningún concierto de artistas que escuchas por aquí por ahora. Prueba una distancia mayor.',
+              )}
+            </p>
+          )}
+          {list.some((c) => c.festival) && (
+            <div className="gig-fests">
+              <header className="card-head">
+                <h3>{t('Festivais na região', 'Festivals nearby', 'Festivales en la zona')}</h3>
+                <p>
+                  {t(
+                    'Todos os festivais de música, mesmo sem line-up anunciado. Artistas seus confirmados aparecem em destaque.',
+                    'Every music festival, even before the line-up is out. Artists of yours on the bill are highlighted.',
+                    'Todos los festivales de música, aunque no haya cartel. Tus artistas confirmados aparecen destacados.',
+                  )}
+                </p>
+              </header>
+              <GigList items={list.filter((c) => c.festival)} />
+            </div>
+          )}
+        </>
       ) : failed ? (
         error === 'key' ? (
           <p className="ex-fail">
@@ -222,11 +226,45 @@ function Nearby({ data, saved, onChange }: { data: Dataset; saved: Saved; onChan
   )
 }
 
+function GigList({ items }: { items: Concert[] }) {
+  const [all, setAll] = useState(false)
+  return (
+    <>
+      <ul className="ex-list">
+        {items.slice(0, all ? undefined : FEW).map((c) => (
+          <GigRow key={c.id} c={c} />
+        ))}
+      </ul>
+      {items.length > FEW && (
+        <button className="ghost ex-more" onClick={() => setAll(!all)}>
+          {all ? t('Ver menos', 'Show less', 'Ver menos') : t(`Ver todos (${items.length})`, `Show all (${items.length})`, `Ver todos (${items.length})`)}
+        </button>
+      )}
+    </>
+  )
+}
+
+const noon = (d: string) => new Date(`${d}T12:00:00`)
+
+/** "sáb., 21 de nov. de 2026", ou "19–21 de mar. de 2027" para um festival de vários dias. */
+function when(c: Concert): string {
+  if (c.end && c.end !== c.date) {
+    const range = new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short', year: 'numeric' }).formatRange(noon(c.date), noon(c.end))
+    const n = c.days ?? 2
+    return `${range} · ${t(`${n} dias`, `${n} days`, `${n} días`)}`
+  }
+  const day = noon(c.date).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+  return c.time ? `${day} · ${c.time.slice(0, 5)}` : day
+}
+
 function GigRow({ c }: { c: Concert }) {
-  const day = new Date(`${c.date}T12:00:00`)
+  const day = noon(c.date)
   const names = c.artists.map((a) => a.name).join(', ')
   const where = [c.venue, c.city, c.km !== undefined ? `${Math.round(c.km)} km` : ''].filter(Boolean).join(' · ')
   const label = t(`Ingressos para ${c.name}`, `Tickets for ${c.name}`, `Entradas para ${c.name}`)
+  // Show: o artista em cima e o nome do evento embaixo. Festival: o nome do festival em cima e os seus artistas embaixo.
+  const title = c.festival ? c.name : names
+  const why = c.festival ? (names ? t(`Com ${names}`, `With ${names}`, `Con ${names}`) : '') : c.name !== names ? c.name : ''
   return (
     <li className="ex-row">
       <span className="gig-date" aria-hidden>
@@ -234,13 +272,10 @@ function GigRow({ c }: { c: Concert }) {
         <span>{day.toLocaleDateString(locale(), { month: 'short' }).replace('.', '')}</span>
       </span>
       <div className="ex-body">
-        <span className="ex-title">{names}</span>
-        <span className="ex-sub">
-          {day.toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
-          {c.time ? ` · ${c.time.slice(0, 5)}` : ''}
-        </span>
+        <span className="ex-title">{title}</span>
+        <span className="ex-sub">{when(c)}</span>
         <span className="ex-sub">{where}</span>
-        {c.name !== names && <span className="ex-why">{c.name}</span>}
+        {why && <span className="ex-why">{why}</span>}
       </div>
       {c.url && (
         <a className="ex-link" href={c.url} target="_blank" rel="noreferrer" aria-label={label} title={label}>

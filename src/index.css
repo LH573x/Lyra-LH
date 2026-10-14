@@ -3547,3 +3547,8 @@ a.find-card:hover {
   text-transform: uppercase;
   color: var(--ink-2);
 }
+.gig-fests {
+  margin-top: 8px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
