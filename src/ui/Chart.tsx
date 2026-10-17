@@ -1,23 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { EChartsCoreOption, ECharts } from 'echarts/core'
 import { reducedMotion, useInView } from './motion'
-import * as echarts from 'echarts/core'
-import { BarChart, LineChart, HeatmapChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, CalendarComponent, VisualMapComponent, MarkLineComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
+import { loadCharts } from './loadCharts'
 
-echarts.use([
-  BarChart,
-  LineChart,
-  HeatmapChart,
-  GridComponent,
-  TooltipComponent,
-  CalendarComponent,
-  VisualMapComponent,
-  MarkLineComponent,
-  CanvasRenderer,
-])
-
-export type ChartOption = echarts.EChartsCoreOption
+export type ChartOption = EChartsCoreOption
 
 interface Props {
   option: ChartOption
@@ -35,24 +21,38 @@ const motion = (): ChartOption =>
  */
 export function Chart({ option, height, label }: Props) {
   const [el, seen] = useInView<HTMLDivElement>()
-  const chart = useRef<echarts.ECharts | null>(null)
+  const chart = useRef<ECharts | null>(null)
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
     if (!seen || !el.current) return
-    const c = echarts.init(el.current, undefined, { renderer: 'canvas' })
-    chart.current = c
-    const ro = new ResizeObserver(() => c.resize())
-    ro.observe(el.current)
+    let gone = false
+    let c: ECharts | null = null
+    let ro: ResizeObserver | null = null
+    loadCharts().then(
+      ({ echarts }) => {
+        if (gone || !el.current) return
+        c = echarts.init(el.current, undefined, { renderer: 'canvas' })
+        chart.current = c
+        ro = new ResizeObserver(() => c?.resize())
+        ro.observe(el.current)
+        setReady(true)
+      },
+      // Sem rede para baixar os gráficos: o espaço fica vazio, o resto da página segue.
+      () => {},
+    )
     return () => {
-      ro.disconnect()
-      c.dispose()
+      gone = true
+      ro?.disconnect()
+      c?.dispose()
       chart.current = null
+      setReady(false)
     }
   }, [seen, el])
 
   useEffect(() => {
-    chart.current?.setOption({ ...motion(), ...option }, { notMerge: true })
-  }, [option, seen])
+    if (ready) chart.current?.setOption({ ...motion(), ...option }, { notMerge: true })
+  }, [option, ready])
 
   return <div ref={el} role="img" aria-label={label} style={{ width: '100%', height }} />
 }

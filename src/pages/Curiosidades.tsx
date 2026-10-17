@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { Dataset } from '../data/types'
 import type { Filter } from '../data/stats'
 import { dayParts, habits } from '../data/habits'
@@ -16,6 +16,7 @@ import { trackOf } from '../ui/playerStore'
 import { onThisDay } from '../data/onThisDay'
 import { Memories } from '../ui/Memories'
 import { DayStory } from '../ui/DayStory'
+import { useMedia } from '../ui/useMedia'
 import { locale, t } from '../i18n'
 
 interface Props {
@@ -42,16 +43,6 @@ function dayLabel(key: string, withWeekday = true): string {
   })
 }
 
-function useNarrow(px = 720) {
-  const [narrow, setNarrow] = useState(() => window.innerWidth < px)
-  useEffect(() => {
-    const on = () => setNarrow(window.innerWidth < px)
-    window.addEventListener('resize', on)
-    return () => window.removeEventListener('resize', on)
-  }, [px])
-  return narrow
-}
-
 export function Curiosidades({ data, filter, theme, lastYear }: Props) {
   const h = useMemo(() => habits(data, filter, lastYear), [data, filter, lastYear])
   // "Seu 4 de outubro" só com todos os anos (com um ano escolhido, não faz sentido).
@@ -61,7 +52,7 @@ export function Curiosidades({ data, filter, theme, lastYear }: Props) {
   const today = dayTitle(now)
   const yearList = useMemo(() => years(data), [data])
   const c = chartColors(theme, 'coral')
-  const narrow = useNarrow()
+  const narrow = useMedia('(max-width: 719.98px)')
 
   const calendarOption = useMemo<ChartOption>(
     () => ({

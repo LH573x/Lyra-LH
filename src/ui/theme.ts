@@ -61,8 +61,18 @@ const TONES: Record<Tone, Record<ThemeName, Pick<ChartColors, 'accent' | 'ramp'>
   },
 }
 
-/** Cores dos gráficos no tema e na cor da aba. */
-export const chartColors = (theme: ThemeName, tone: Tone = 'green'): ChartColors => ({ ...CHART_COLORS[theme], ...TONES[tone][theme] })
+const colors = new Map<string, ChartColors>()
+
+/**
+ * Cores dos gráficos no tema e na cor da aba. É sempre o mesmo objeto para o mesmo par:
+ * os gráficos só se redesenham quando o tema muda de verdade.
+ */
+export function chartColors(theme: ThemeName, tone: Tone = 'green'): ChartColors {
+  const key = `${theme}:${tone}`
+  let c = colors.get(key)
+  if (!c) colors.set(key, (c = { ...CHART_COLORS[theme], ...TONES[tone][theme] }))
+  return c
+}
 
 const KEY = 'spotify-stats-theme'
 

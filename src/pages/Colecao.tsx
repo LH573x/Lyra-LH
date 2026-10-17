@@ -8,6 +8,7 @@ import { PlayButton } from '../ui/player'
 import { isSpotifyUri, trackOf } from '../ui/playerStore'
 import { playlistHref, songHref } from '../ui/links'
 import { cleanTitle, date, hours, monthLabel, num } from '../ui/format'
+import { PHONE, useMedia } from '../ui/useMedia'
 import { t } from '../i18n'
 
 const FEW = 6
@@ -55,9 +56,10 @@ const monthOf = (ms: number) => {
 
 const savedTrack = (s: SavedTrack) => (isSpotifyUri(s.uri) ? { uri: s.uri, name: s.name, artist: s.artist } : null)
 
-/** Curtidas que você largou (e as que nunca tocou). */
+/** Curtidas que você largou (e as que nunca tocou): linhas cheias, de 4 no computador e de 3 no celular. */
 export function Curtidas({ data }: { data: Dataset }) {
-  const f = useMemo(() => likedForgotten(data), [data])
+  const phone = useMedia(PHONE)
+  const f = useMemo(() => (phone ? likedForgotten(data, 9, 3) : likedForgotten(data, 8, 4)), [data, phone])
   if (!f || (f.abandoned.length === 0 && f.neverCount === 0)) return null
   return (
     <>

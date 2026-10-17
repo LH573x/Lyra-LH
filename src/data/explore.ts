@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react'
 import type { Dataset } from './types'
 import { norm } from './search'
+import { creatorOf } from './stats'
+import { lowerBound } from './calendar'
 import { findArtist, previewOf, related, topTracks, type DzArtist, type DzTrack } from './deezer'
 
 /*
@@ -31,9 +33,11 @@ function known(d: Dataset): Known {
   let k = knownCache.get(d)
   if (k) return k
   k = { artists: new Set(), songs: new Map() }
+  // Uma vez por artista, não por música.
+  const keys: string[] = []
   for (const it of d.items) {
     if (it.kind !== 'music') continue
-    const a = artistKey(d.creators[it.creator])
+    const a = (keys[it.creator] ??= artistKey(d.creators[it.creator]))
     k.artists.add(a)
     for (const [, guests] of it.name.matchAll(GUESTS)) {
       k.artists.add(artistKey(guests))
@@ -51,20 +55,23 @@ const knowsArtist = (k: Known, name: string) => k.artists.has(artistKey(name)) |
 const knowsSong = (k: Known, t: DzTrack, artist = t.artist) =>
   (k.songs.get(artistKey(artist))?.has(titleKey(t.title)) ?? false) || hidden.has(songKey(t))
 
+/** O ranking de sempre não muda: a roleta pede de novo a cada giro. */
+const allTime = new WeakMap<Dataset, number[]>()
+
 /** Seus artistas de música mais ouvidos (a partir de `since`, em ms). */
 export function topArtists(d: Dataset, n: number, since = -Infinity): { id: number; name: string }[] {
-  const total = new Float64Array(d.creators.length)
-  const { start, ms, item } = d.plays
-  for (let i = 0; i < item.length; i++) {
-    if (start[i] < since) continue
-    const it = d.items[item[i]]
-    if (it.kind === 'music') total[it.creator] += ms[i]
+  let ids = since === -Infinity ? allTime.get(d) : undefined
+  if (!ids) {
+    const total = new Float64Array(d.creators.length)
+    const { start, ms, item } = d.plays
+    const creator = creatorOf(d)
+    const music = Uint8Array.from(d.items, (it) => (it.kind === 'music' ? 1 : 0))
+    // As reproduções estão em ordem: começa direto na primeira depois de `since`.
+    for (let i = lowerBound(start, since); i < item.length; i++) if (music[item[i]]) total[creator[item[i]]] += ms[i]
+    ids = [...total.keys()].filter((c) => total[c] > 0).sort((a, b) => total[b] - total[a])
+    if (since === -Infinity) allTime.set(d, ids)
   }
-  return [...total.keys()]
-    .filter((c) => total[c] > 0)
-    .sort((a, b) => total[b] - total[a])
-    .slice(0, n)
-    .map((id) => ({ id, name: d.creators[id] }))
+  return ids.slice(0, n).map((id) => ({ id, name: d.creators[id] }))
 }
 
 // Sorteio com semente: a mesma semana e os mesmos dados dão sempre as mesmas descobertas.
@@ -131,7 +138,7 @@ export async function weekly(d: Dataset): Promise<Pick[]> {
 
   const k = known(d)
   const rnd = rng(`${week}:${d.importedAt}`)
-  const last = d.plays.start.reduce((a, b) => Math.max(a, b), 0)
+  const last = d.plays.start[d.plays.start.length - 1] ?? 0
   let seeds = topArtists(d, 10, last - 90 * 86_400_000)
   if (seeds.length < 5) seeds = topArtists(d, 10)
 

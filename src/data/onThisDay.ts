@@ -1,5 +1,6 @@
 import type { Dataset } from './types'
 import { kindMatches, type KindFilter } from './stats'
+import { calendar, lowerBound } from './calendar'
 
 export interface DayMemory {
   yearsAgo: number
@@ -10,23 +11,11 @@ export interface DayMemory {
   creator: number
 }
 
-/** Primeira posição com início >= t (as reproduções estão em ordem de horário). */
-function lowerBound(a: Float64Array, t: number) {
-  let lo = 0
-  let hi = a.length
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (a[mid] < t) lo = mid + 1
-    else hi = mid
-  }
-  return lo
-}
-
 /** "Seu 4 de outubro": o que você ouviu nesta mesma data em cada ano que passou. */
 export function onThisDay(d: Dataset, kind: KindFilter, today = new Date()): DayMemory[] {
   const { start, ms, item, flags } = d.plays
   if (start.length === 0) return []
-  const firstYear = new Date(start[0]).getFullYear()
+  const firstYear = calendar(d).year[0]
   const m = today.getMonth()
   const day = today.getDate()
   const out: DayMemory[] = []

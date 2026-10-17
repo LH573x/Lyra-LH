@@ -1,7 +1,8 @@
 import type { Dataset } from './types'
-import { kindMatches, MIN_PLAY_MS, summarize, top, type Ranked } from './stats'
+import { creatorLabel, creatorOf, itemLabel, kindMatches, MIN_PLAY_MS, summarize, Tally, type Ranked } from './stats'
 import { dayParts, habits, type Habits } from './habits'
-import { timeline, type Discovery } from './timeline'
+import { discoveries, type Discovery } from './timeline'
+import { calendar, lowerBound, yearRange } from './calendar'
 import type { ImageRef } from './images'
 import { artistRef, itemRef } from './refs'
 
@@ -54,24 +55,23 @@ const MIN_PODCAST_MS = 30 * 60_000
 function favorite(d: Dataset, r: Ranked | undefined, year: number): Favorite | null {
   if (!r) return null
   const { start, ms, item } = d.plays
-  const byItem = new Map<number, { ms: number; plays: number }>()
+  const creator = creatorOf(d)
   let since: number | null = null
-  for (let i = 0; i < start.length; i++) {
-    if (d.items[item[i]].creator !== r.id) continue
-    if (since === null && ms[i] >= MIN_PLAY_MS) since = start[i]
-    if (new Date(start[i]).getFullYear() !== year) continue
-    const e = byItem.get(item[i]) ?? { ms: 0, plays: 0 }
-    e.ms += ms[i]
-    if (ms[i] >= MIN_PLAY_MS) e.plays++
-    byItem.set(item[i], e)
+  for (let i = 0; i < item.length; i++) {
+    if (creator[item[i]] === r.id && ms[i] >= MIN_PLAY_MS) {
+      since = start[i]
+      break
+    }
   }
-  let best: [number, { ms: number; plays: number }] | null = null
-  for (const e of byItem) if (!best || e[1].ms > best[1].ms) best = e
+  const byItem = new Tally(d.items.length)
+  const [lo, hi] = yearRange(d, year)
+  for (let i = lo; i < hi; i++) if (creator[item[i]] === r.id) byItem.add(item[i], ms[i])
+  const [best] = byItem.top(1)
   return {
     ...r,
-    topItem: best && { name: d.items[best[0]].name, ms: best[1].ms, plays: best[1].plays, image: itemRef(d, best[0]) },
+    topItem: best === undefined ? null : { name: d.items[best].name, ms: byItem.ms[best], plays: byItem.plays[best], image: itemRef(d, best) },
     image: artistRef(d, r.id),
-    itemCount: byItem.size,
+    itemCount: byItem.ids.length,
     since,
   }
 }
@@ -91,8 +91,8 @@ export function wrapped(d: Dataset, year: number): WrappedYear | null {
   const from = new Date(all.first)
   const to = new Date(all.last)
   const pod = podcast.topCreators[0]
-  const firstYear = new Date(d.plays.start[0]).getFullYear() === year
-  const discovery = firstYear ? null : (timeline(d, 'music').discoveries.find((x) => x.year === year) ?? null)
+  const firstYear = calendar(d).year[0] === year
+  const discovery = firstYear ? null : (discoveries(d, 'music').find((x) => x.year === year) ?? null)
 
   return {
     year,
@@ -144,51 +144,41 @@ const DAY = 86_400_000
 export function topPeriods(d: Dataset): TopPeriod[] {
   const { start, ms, item, flags } = d.plays
   if (start.length === 0) return []
+  const creator = creatorOf(d)
   const end = start[start.length - 1]
   const windows = [
     { id: 'mes' as const, from: end - 30 * DAY },
     { id: 'ano' as const, from: end - 365 * DAY },
     { id: 'sempre' as const, from: start[0] },
-  ].map((w) => ({ ...w, totalMs: 0, first: Infinity, byCreator: new Map<number, { ms: number; plays: number }>(), byItem: new Map<number, { ms: number; plays: number }>() }))
-
-  for (let i = 0; i < start.length; i++) {
-    if (!kindMatches(flags[i], 'music')) continue
-    const it = item[i]
-    const c = d.items[it].creator
-    const counted = ms[i] >= MIN_PLAY_MS ? 1 : 0
-    for (const w of windows) {
-      if (start[i] < w.from) continue
-      w.totalMs += ms[i]
-      w.first = Math.min(w.first, start[i])
-      const ce = w.byCreator.get(c) ?? { ms: 0, plays: 0 }
-      ce.ms += ms[i]
-      ce.plays += counted
-      w.byCreator.set(c, ce)
-      const ie = w.byItem.get(it) ?? { ms: 0, plays: 0 }
-      ie.ms += ms[i]
-      ie.plays += counted
-      w.byItem.set(it, ie)
+  ]
+  const out: TopPeriod[] = []
+  for (const w of windows) {
+    // Com menos de um ano de dados, "o último ano" e "desde sempre" seriam o mesmo cartão.
+    if (w.id === 'ano' && w.from <= start[0]) continue
+    const byCreator = new Tally(d.creators.length)
+    const byItem = new Tally(d.items.length)
+    let totalMs = 0
+    let first = Infinity
+    for (let i = lowerBound(start, w.from); i < start.length; i++) {
+      if (!kindMatches(flags[i], 'music')) continue
+      const it = item[i]
+      totalMs += ms[i]
+      first = Math.min(first, start[i])
+      byCreator.add(creator[it], ms[i])
+      byItem.add(it, ms[i])
     }
+    if (byCreator.ids.length === 0) continue
+    const artists = byCreator.ranked(5, creatorLabel(d))
+    const songs = byItem.ranked(5, itemLabel(d))
+    out.push({
+      id: w.id,
+      from: w.id === 'sempre' ? first : w.from,
+      to: end,
+      totalMs,
+      artists,
+      songs,
+      images: { artists: artists.map((a) => artistRef(d, a.id)), songs: songs.map((s) => itemRef(d, s.id)) },
+    })
   }
-
-  const year = windows[1]
-  return (
-    windows
-      .filter((w) => w.byCreator.size > 0)
-      // Com menos de um ano de dados, "o último ano" e "desde sempre" seriam o mesmo cartão.
-      .filter((w) => !(w.id === 'ano' && year.from <= start[0]))
-      .map((w) => {
-        const artists = top(w.byCreator, 5, (id) => [d.creators[id], ''])
-        const songs = top(w.byItem, 5, (id) => [d.items[id].name, d.creators[d.items[id].creator]])
-        return {
-          id: w.id,
-          from: w.id === 'sempre' ? w.first : w.from,
-          to: end,
-          totalMs: w.totalMs,
-          artists,
-          songs,
-          images: { artists: artists.map((a) => artistRef(d, a.id)), songs: songs.map((s) => itemRef(d, s.id)) },
-        }
-      })
-  )
+  return out
 }

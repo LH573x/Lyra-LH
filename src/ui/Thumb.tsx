@@ -1,6 +1,30 @@
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useImageState, type ImageRef } from '../data/images'
 import { hue } from './format'
+
+// Um observador só para todas as fotos e capas: diz quais estão na tela (ou quase), para essas
+// passarem na frente na fila de buscas.
+const watching = new Map<Element, (near: boolean) => void>()
+let observer: IntersectionObserver | null = null
+
+function watch(el: Element, on: (near: boolean) => void) {
+  observer ??= new IntersectionObserver((entries) => {
+    for (const e of entries) watching.get(e.target)?.(e.isIntersecting)
+  }, { rootMargin: '50% 0px' })
+  watching.set(el, on)
+  observer.observe(el)
+  return () => {
+    watching.delete(el)
+    observer?.unobserve(el)
+  }
+}
+
+function useNear<T extends Element>() {
+  const ref = useRef<T>(null)
+  const [near, setNear] = useState(() => typeof IntersectionObserver === 'undefined')
+  useEffect(() => (ref.current && typeof IntersectionObserver !== 'undefined' ? watch(ref.current, setNear) : undefined), [])
+  return [ref, near] as const
+}
 
 interface ArtProps {
   image?: ImageRef
@@ -18,7 +42,8 @@ interface ArtProps {
  * se não existir, a inicial num fundo colorido.
  */
 export function Art({ image, label, size, round, className = '', style }: ArtProps) {
-  const { url, waiting } = useImageState(image)
+  const [el, near] = useNear<HTMLSpanElement>()
+  const { url, waiting } = useImageState(image, near)
   const [failed, setFailed] = useState<string | null>(null)
   const [loaded, setLoaded] = useState<string | null>(null)
   const isRound = round ?? (image ? image.kind !== 'album' : false)
@@ -26,7 +51,7 @@ export function Art({ image, label, size, round, className = '', style }: ArtPro
   const wait = waiting || (show && loaded !== url)
   const css = { '--h': hue(label), ...(size ? { width: size, height: size } : {}), ...style } as CSSProperties
   return (
-    <span className={`art ${size ? '' : 'fill'} ${isRound ? 'round' : ''} ${wait ? 'wait' : ''} ${className}`} style={css} aria-hidden>
+    <span ref={el} className={`art ${size ? '' : 'fill'} ${isRound ? 'round' : ''} ${wait ? 'wait' : ''} ${className}`} style={css} aria-hidden>
       {show ? (
         <img src={url} alt="" loading="lazy" referrerPolicy="no-referrer" onLoad={() => setLoaded(url)} onError={() => setFailed(url)} />
       ) : waiting ? null : (

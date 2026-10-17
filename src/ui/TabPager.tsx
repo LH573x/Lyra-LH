@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { startTransition, useDeferredValue, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { haptic } from './haptic'
 
 /** Partes da página que já usam o dedo para os lados (stories, janelas, linhas do Explorar): ali o arrastar não troca de aba. */
@@ -30,6 +30,15 @@ interface Drag {
   lastX: number
   lastT: number
   speed: number
+}
+
+/**
+ * As vizinhas escondidas se atualizam depois da aba que está na tela (um filtro trocado
+ * aparece na hora, e elas acompanham em seguida, sem segurar o toque).
+ */
+function Later({ now, children }: { now: boolean; children: ReactNode }) {
+  const later = useDeferredValue(children)
+  return now ? children : later
 }
 
 /**
@@ -223,7 +232,7 @@ export function TabPager({
         return (
           <div key={tab.id} className={`slot ${role}`} data-tone={tab.tone} inert={side} aria-hidden={side || undefined}>
             <div className="slot-col">
-              {render(tab.id)}
+              <Later now={!side}>{render(tab.id)}</Later>
               {side ? null : footer}
             </div>
           </div>

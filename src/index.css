@@ -2130,9 +2130,6 @@ a.rank-name:focus-visible {
   text-align: center;
   white-space: nowrap;
 }
-.view-switch {
-  align-self: flex-start;
-}
 a.wall-name:hover {
   color: var(--accent);
   text-decoration: underline;
@@ -2231,97 +2228,25 @@ a.wall-name:hover {
   font-size: 14px;
   cursor: default;
 }
-.years-grid {
-  border-collapse: separate;
-  border-spacing: 4px;
-  width: 100%;
-  min-width: calc(28px + var(--years) * 100px);
-  table-layout: fixed;
-}
-.years-grid th {
-  color: var(--ink);
-  font: 800 16px/1 var(--display);
-  text-align: left;
-  padding: 0 8px 6px;
-}
-.years-grid thead th small,
-.years-grid td small {
-  display: block;
-  font: 400 11px/1.3 var(--body);
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-/* Coluna da posição: só a largura do número, e fica parada quando os anos rolam para o lado. */
-.years-grid tr > :first-child {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  width: 24px;
-  padding: 0;
-  background: var(--surface);
-  /* Cobre também as frestas dos lados, para nada aparecer passando por trás. */
-  box-shadow: -8px 0 0 var(--surface), 4px 0 0 var(--surface);
-}
-.years-grid tbody th {
-  text-align: center;
-  color: var(--muted);
-  font-size: 13px;
-}
-/* Todas as caixas iguais: foto quadrada de ponta a ponta e o texto embaixo. */
-.years-grid td {
-  padding: 0;
-  vertical-align: top;
-  background: var(--surface-2);
-  border-radius: 10px;
-  overflow: hidden;
-  transition: background 0.12s, opacity 0.12s;
-}
-.years-grid td a {
+/* Seu top: período e tipo em cima, duas linhas de cinco capas */
+/* Períodos à esquerda e tipo à direita; se os anos não couberem junto, o tipo desce para a linha de baixo. */
+.top-pick {
   display: flex;
-  flex-direction: column;
-  color: var(--ink);
-  text-decoration: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
 }
-.years-grid td a .art {
-  border-radius: 0;
+.top-pick .chips {
+  flex: 0 1 auto;
 }
-.yg-text {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 7px 8px 9px;
-  /* Espaço para duas linhas de nome e as linhas de baixo: todas as caixas com a mesma altura. */
-  min-height: 64px;
-  min-width: 0;
+.wall.tops {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
-.with-sub .yg-text {
-  min-height: 80px;
-}
-.yg-name {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  overflow-wrap: break-word;
-  hyphens: auto;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.25;
-}
-.years-grid td small {
+.tops .wall-value {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-.years-grid td.on {
-  background: var(--accent);
-}
-.years-grid td.on a,
-.years-grid td.on small {
-  color: var(--accent-ink);
-}
-.years-grid td.dim {
-  opacity: 0.45;
 }
 .finds {
   list-style: none;
@@ -2719,31 +2644,6 @@ a.find-card:hover {
 }
 
 @media (max-width: 760px) {
-  /* No celular, do 1º ao 5º cabem juntos na tela com uns 90px de folga: a altura de cada caixa
-     é a tela menos filtros, abas, cabeçalho da tabela e folga, dividida por 5.
-     Foto ocupando a altura toda à esquerda, texto ao lado; os anos rolam para o lado. */
-  .years-grid {
-    --row: clamp(76px, calc((100svh - 290px - env(safe-area-inset-bottom, 0px)) / 5), 120px);
-    min-width: calc(28px + var(--years) * (var(--row) + 132px));
-  }
-  .card:has(> .scroll-x > .years-grid) {
-    padding: 12px;
-  }
-  .years-grid td a {
-    flex-direction: row;
-    height: var(--row);
-  }
-  .years-grid td a .art {
-    width: var(--row);
-    height: 100%;
-  }
-  .yg-text,
-  .with-sub .yg-text {
-    flex: 1;
-    justify-content: center;
-    min-height: 0;
-    padding: 6px 10px;
-  }
   body {
     font-size: 14px;
   }
@@ -2881,7 +2781,40 @@ a.find-card:hover {
 
 @media (max-width: 600px) {
   .wall.faded {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  /* Cinco por linha também no celular: capas menores, número dentro da capa e sem o play. */
+  .wall.tops {
+    gap: 16px 8px;
+  }
+  .tops .wall-art {
+    margin-bottom: 6px;
+  }
+  .tops .wall-art .art {
+    border-radius: 6px;
+    box-shadow: 0 6px 14px var(--shadow);
+  }
+  .tops .wall-art .badge {
+    top: 4px;
+    left: 4px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    font-size: 12px;
+    box-shadow: none;
+  }
+  .tops .wall-name {
+    font-size: 11px;
+    line-height: 1.25;
+    /* Nome longo numa capa estreita: quebra com hífen, não no meio da palavra. */
+    -webkit-hyphens: auto;
+    hyphens: auto;
+  }
+  .tops .wall-value {
+    font-size: 10px;
+  }
+  .tops .play-over {
+    display: none;
   }
   .vs-row {
     grid-template-columns: minmax(0, 1fr) 76px minmax(0, 1fr);

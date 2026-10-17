@@ -1,15 +1,19 @@
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { Dataset } from '../data/types'
 import type { KindFilter } from '../data/stats'
 import { timeline } from '../data/timeline'
+import { albums, periods, topOf, type PeriodId, type TopBy } from '../data/tops'
+import type { ImageRef } from '../data/images'
 import { Chart, type ChartOption } from '../ui/Chart'
 import { chartColors, type ThemeName } from '../ui/theme'
-import { cleanTitle, date, hours, monthLabel, num, ordinal } from '../ui/format'
+import { cleanTitle, date, hours, monthLabel, num } from '../ui/format'
 import { BarList } from '../ui/parts'
 import { More, Section } from '../ui/blocks'
 import { Art } from '../ui/Thumb'
+import { PlayButton } from '../ui/player'
 import { artistHref, songHref } from '../ui/links'
 import { trackOf } from '../ui/playerStore'
+import { reducedMotion } from '../ui/motion'
 import { artistRef, itemRef } from '../data/refs'
 import { Search } from '../ui/Search'
 import { t as tr } from '../i18n'
@@ -35,13 +39,121 @@ const fresh = (who: { one: string; many: string }, n: number) =>
     ? tr(`${who.one} novo`, `new ${who.one}`, `${who.one} nuevo`)
     : tr(`${who.many} novos`, `new ${who.many}`, `${who.many} nuevos`)
 
+const periodLabel = (id: PeriodId) =>
+  typeof id === 'number'
+    ? String(id)
+    : id === 'mes'
+      ? tr('1 mês', '1 month', '1 mes')
+      : id === 'semestre'
+        ? tr('6 meses', '6 months', '6 meses')
+        : id === 'ano'
+          ? tr('1 ano', '1 year', '1 año')
+          : tr('Desde sempre', 'All time', 'Desde siempre')
+
+const byLabel = (by: TopBy, podcast: boolean) =>
+  by === 'songs'
+    ? podcast
+      ? tr('Episódios', 'Episodes', 'Episodios')
+      : tr('Músicas', 'Songs', 'Canciones')
+    : by === 'artists'
+      ? podcast
+        ? 'Podcasts'
+        : tr('Artistas', 'Artists', 'Artistas')
+      : tr('Álbuns', 'Albums', 'Álbumes')
+
+/** Duas linhas de cinco; "Ver mais" abre o top 50. */
+const FEW = 10
+const MANY = 50
+
+/** O seu top de um período (mês, semestre, ano, cada ano ou desde sempre): músicas, artistas ou álbuns. */
+function Tops({ data, kind }: { data: Dataset; kind: KindFilter }) {
+  const list = useMemo(() => periods(data, kind), [data, kind])
+  const [periodId, setPeriodId] = useState<PeriodId | null>(null)
+  const period = list.find((p) => p.id === periodId) ?? list[0]
+  const podcast = kind === 'podcast'
+  // O histórico básico não traz o álbum; podcast também não tem.
+  const kinds: TopBy[] = !podcast && albums(data).list.length > 0 ? ['songs', 'artists', 'albums'] : ['songs', 'artists']
+  const [chosen, setBy] = useState<TopBy>('songs')
+  const by = kinds.includes(chosen) ? chosen : 'songs'
+  const [open, setOpen] = useState(false)
+  const grid = useRef<HTMLOListElement>(null)
+  const top = useMemo(() => (period ? topOf(data, kind, period, by, MANY) : []), [data, kind, period, by])
+  const shown = open ? top : top.slice(0, FEW)
+  const album = by === 'albums' ? albums(data).list : null
+
+  const toggle = () => {
+    // Fechando lá embaixo: volta para o começo da grade antes que ela encolha.
+    const r = grid.current?.getBoundingClientRect()
+    if (open && r && r.top < 0) window.scrollTo({ top: window.scrollY + r.top - 112, behavior: reducedMotion() ? 'auto' : 'smooth' })
+    setOpen(!open)
+  }
+
+  return (
+    <Section title={shown.length ? tr(`Seu top ${shown.length}`, `Your top ${shown.length}`, `Tu top ${shown.length}`) : tr('Seu top', 'Your top', 'Tu top')}>
+      <div className="top-pick">
+        <div className="chips" role="group" aria-label={tr('Período', 'Period', 'Período')}>
+          {list.map((p) => (
+            <button key={p.id} className={p === period ? 'on' : ''} aria-pressed={p === period} onClick={() => setPeriodId(p.id)}>
+              {periodLabel(p.id)}
+            </button>
+          ))}
+        </div>
+        <div className="segmented" role="group" aria-label={tr('Mostrar', 'Show', 'Mostrar')}>
+          {kinds.map((k) => (
+            <button key={k} className={k === by ? 'on' : ''} aria-pressed={k === by} onClick={() => setBy(k)}>
+              {byLabel(k, podcast)}
+            </button>
+          ))}
+        </div>
+      </div>
+      {shown.length === 0 ? (
+        <p className="empty-note">{tr('Nada por aqui nesse período.', 'Nothing here for this period.', 'Nada por aquí en este periodo.')}</p>
+      ) : (
+        <ol ref={grid} key={`${by}-${period?.id}`} className="wall tops">
+          {shown.map((r, i) => {
+            const song = by === 'songs'
+            const name = song ? cleanTitle(r.name) : r.name
+            const creator = by === 'artists' ? r.id : album ? album[r.id].creator : data.items[r.id].creator
+            const image: ImageRef | undefined =
+              by === 'artists' ? artistRef(data, r.id) : album ? { kind: 'album', artist: r.sub, album: r.name } : itemRef(data, r.id)
+            return (
+              <li
+                key={r.id}
+                title={tr(
+                  `${name}${r.sub ? `, de ${r.sub}` : ''}: ${hours(r.ms)}, ${num(r.plays)} reproduções`,
+                  `${name}${r.sub ? `, by ${r.sub}` : ''}: ${hours(r.ms)}, ${num(r.plays)} plays`,
+                  `${name}${r.sub ? `, de ${r.sub}` : ''}: ${hours(r.ms)}, ${num(r.plays)} reproducciones`,
+                )}
+              >
+                <div className="wall-art">
+                  <Art image={image} label={name} round={false} />
+                  <span className="badge">{i + 1}</span>
+                  {song && <PlayButton track={trackOf(data, r.id)} className="play-over" />}
+                </div>
+                <a className="wall-name" href={song ? songHref(r.id) : artistHref(creator)}>
+                  {name}
+                </a>
+                <span className="wall-value">{r.sub || hours(r.ms)}</span>
+              </li>
+            )
+          })}
+        </ol>
+      )}
+      {top.length > FEW && (
+        <div className="more">
+          <button className="ghost" aria-expanded={open} onClick={toggle}>
+            {open ? tr('Ver menos', 'Show less', 'Ver menos') : tr('Ver mais', 'Show more', 'Ver más')}
+          </button>
+        </div>
+      )}
+    </Section>
+  )
+}
+
 export function LinhaDoTempo({ data, kind, theme }: Props) {
   const t = useMemo(() => timeline(data, kind), [data, kind])
   const c = chartColors(theme, 'amber')
-  const who = WHO[kind]()
-  const [hover, setHover] = useState<number | null>(null)
-  const [view, setView] = useState<'artists' | 'songs'>('artists')
-  const songs = view === 'songs'
+  const who = useMemo(() => WHO[kind](), [kind])
 
   const newOption = useMemo<ChartOption>(
     () => ({
@@ -88,10 +200,9 @@ export function LinhaDoTempo({ data, kind, theme }: Props) {
 
   // Quem foi nº 1 em mais anos.
   const champions = new Map<number, number>()
-  for (const y of t.years) if (y.top[0]) champions.set(y.top[0].id, (champions.get(y.top[0].id) ?? 0) + 1)
+  for (const y of t.years) if (y.top !== null) champions.set(y.top, (champions.get(y.top) ?? 0) + 1)
   const [champId, champYears] = [...champions.entries()].sort((a, b) => b[1] - a[1])[0] ?? [null, 0]
   const discovered = t.discoveries.reduce((a, d) => a + d.count, 0)
-  const rows = Math.max(...t.years.map((y) => y.top.length))
   const maxPeak = t.phases[0]?.peakMs ?? 1
   const maxSongPeak = t.songPhases[0]?.peakPlays ?? 1
 
@@ -140,86 +251,7 @@ export function LinhaDoTempo({ data, kind, theme }: Props) {
         }
       />
 
-      <Section title={tr(`Seu top ${rows} de cada ano`, `Your top ${rows} each year`, `Tu top ${rows} de cada año`)}>
-        <div className="segmented view-switch" role="group" aria-label={tr('Mostrar', 'Show', 'Mostrar')}>
-          <button
-            className={songs ? '' : 'on'}
-            aria-pressed={!songs}
-            onClick={() => {
-              setView('artists')
-              setHover(null)
-            }}
-          >
-            {kind === 'podcast' ? 'Podcasts' : tr('Artistas', 'Artists', 'Artistas')}
-          </button>
-          <button
-            className={songs ? 'on' : ''}
-            aria-pressed={songs}
-            onClick={() => {
-              setView('songs')
-              setHover(null)
-            }}
-          >
-            {kind === 'podcast' ? tr('Episódios', 'Episodes', 'Episodios') : tr('Músicas', 'Songs', 'Canciones')}
-          </button>
-        </div>
-        <div className="card">
-          <div className="scroll-x">
-            <table
-              className={songs ? 'years-grid with-sub' : 'years-grid'}
-              style={{ '--years': t.years.length } as CSSProperties}
-              onMouseLeave={() => setHover(null)}
-            >
-              <thead>
-                <tr>
-                  <th scope="col" aria-label={tr('Posição', 'Rank', 'Posición')} />
-                  {t.years.map((y) => (
-                    <th key={y.year} scope="col">
-                      {y.year}
-                      <small>{hours(y.totalMs)}</small>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from({ length: rows }, (_, r) => (
-                  <tr key={r}>
-                    <th scope="row">{ordinal(r + 1)}</th>
-                    {t.years.map((y) => {
-                      const a = songs ? y.topItems[r] : y.top[r]
-                      if (!a) return <td key={y.year} />
-                      const name = songs ? cleanTitle(a.name) : a.name
-                      const sub = songs ? data.creators[data.items[a.id].creator] : null
-                      const image = songs ? itemRef(data, a.id) : artistRef(data, a.id)
-                      return (
-                        <td key={y.year} className={hover === a.id ? 'on' : hover !== null ? 'dim' : ''}>
-                          <a
-                            href={songs ? songHref(a.id) : artistHref(a.id)}
-                            onMouseEnter={() => setHover(a.id)}
-                            onFocus={() => setHover(a.id)}
-                            title={tr(
-                              `${name}${sub ? `, de ${sub}` : ''}: ${hours(a.ms)} em ${y.year}`,
-                              `${name}${sub ? `, by ${sub}` : ''}: ${hours(a.ms)} in ${y.year}`,
-                              `${name}${sub ? `, de ${sub}` : ''}: ${hours(a.ms)} en ${y.year}`,
-                            )}
-                          >
-                            <Art image={image} label={name} round={false} />
-                            <span className="yg-text">
-                              <span className="yg-name">{name}</span>
-                              {sub && <small>{sub}</small>}
-                              <small>{hours(a.ms)}</small>
-                            </span>
-                          </a>
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </Section>
+      <Tops data={data} kind={kind} />
 
       <Section title={tr('Quem chegou para ficar', 'Here to stay', 'Llegaron para quedarse')}>
         <div className="scroll-x">
