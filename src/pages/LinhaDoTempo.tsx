@@ -1,12 +1,13 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, type MouseEvent } from 'react'
+import { flushSync } from 'react-dom'
 import type { Dataset } from '../data/types'
 import type { KindFilter } from '../data/stats'
-import { timeline } from '../data/timeline'
-import { albums, periods, topOf, type PeriodId, type TopBy } from '../data/tops'
+import { albums, type PeriodId, type TopBy } from '../data/tops'
+import { periodsView, previousRanksView, timelineView, topView, TOP_MAX } from '../data/views'
 import type { ImageRef } from '../data/images'
 import { Chart, type ChartOption } from '../ui/Chart'
 import { chartColors, type ThemeName } from '../ui/theme'
-import { cleanTitle, date, hours, monthLabel, num } from '../ui/format'
+import { cleanTitle, date, hours, monthLabel, num, playCount } from '../ui/format'
 import { BarList } from '../ui/parts'
 import { More, Section } from '../ui/blocks'
 import { Art } from '../ui/Thumb'
@@ -16,6 +17,7 @@ import { trackOf } from '../ui/playerStore'
 import { reducedMotion } from '../ui/motion'
 import { artistRef, itemRef } from '../data/refs'
 import { Search } from '../ui/Search'
+import { TopStory } from '../ui/TopStory'
 import { t as tr } from '../i18n'
 
 interface Props {
@@ -61,13 +63,47 @@ const byLabel = (by: TopBy, podcast: boolean) =>
         : tr('Artistas', 'Artists', 'Artistas')
       : tr('Álbuns', 'Albums', 'Álbumes')
 
-/** Duas linhas de cinco; "Ver mais" abre o top 50. */
-const FEW = 10
-const MANY = 50
+/** Duas linhas de cinco; cada "Ver mais" abre o próximo: top 50, 100 e 200. */
+const STEPS = [10, 50, 100, TOP_MAX]
+
+const Arrow = ({ up }: { up: boolean }) => (
+  <svg viewBox="0 0 8 6" aria-hidden="true">
+    <path d={up ? 'M4 0 8 6H0Z' : 'M4 6 0 0h8Z'} />
+  </svg>
+)
+
+/** Subiu, caiu ou entrou no top, em relação ao período anterior (sem mudança, nada). */
+function Move({ rank, before, female }: { rank: number; before: number | undefined; female: boolean }) {
+  if (before === undefined)
+    return <span className="move new">{female ? tr('nova', 'new', 'nueva') : tr('novo', 'new', 'nuevo')}</span>
+  const d = before - rank
+  if (d === 0) return null
+  return (
+    <span className={`move ${d > 0 ? 'up' : 'down'}`}>
+      <Arrow up={d > 0} />
+      <span className="sr-only">{d > 0 ? tr('subiu', 'up', 'subió') : tr('caiu', 'down', 'bajó')} </span>
+      {Math.abs(d)}
+    </span>
+  )
+}
+
+/** O que a seta diz, para a dica do mouse. */
+function moveText(rank: number, before: number | undefined, female: boolean) {
+  if (before === undefined)
+    return female
+      ? tr('nova no top', 'new in the chart', 'nueva en el top')
+      : tr('novo no top', 'new in the chart', 'nuevo en el top')
+  const d = before - rank
+  if (d === 0) return tr('mesma posição', 'same position', 'misma posición')
+  const n = Math.abs(d)
+  return d > 0
+    ? tr(`subiu ${n} ${n === 1 ? 'posição' : 'posições'}`, `up ${n}`, `subió ${n} ${n === 1 ? 'puesto' : 'puestos'}`)
+    : tr(`caiu ${n} ${n === 1 ? 'posição' : 'posições'}`, `down ${n}`, `bajó ${n} ${n === 1 ? 'puesto' : 'puestos'}`)
+}
 
 /** O seu top de um período (mês, semestre, ano, cada ano ou desde sempre): músicas, artistas ou álbuns. */
 function Tops({ data, kind }: { data: Dataset; kind: KindFilter }) {
-  const list = useMemo(() => periods(data, kind), [data, kind])
+  const list = useMemo(() => periodsView(data, kind), [data, kind])
   const [periodId, setPeriodId] = useState<PeriodId | null>(null)
   const period = list.find((p) => p.id === periodId) ?? list[0]
   const podcast = kind === 'podcast'
@@ -75,17 +111,34 @@ function Tops({ data, kind }: { data: Dataset; kind: KindFilter }) {
   const kinds: TopBy[] = !podcast && albums(data).list.length > 0 ? ['songs', 'artists', 'albums'] : ['songs', 'artists']
   const [chosen, setBy] = useState<TopBy>('songs')
   const by = kinds.includes(chosen) ? chosen : 'songs'
-  const [open, setOpen] = useState(false)
+  // Cada lista abre com 10: outro período, outro tipo ou outra aba fecha o "Ver mais".
+  const view = `${kind}|${by}|${period?.id}`
+  const [open, setOpen] = useState({ view, step: 0 })
+  const step = open.view === view ? open.step : 0
   const grid = useRef<HTMLOListElement>(null)
-  const top = useMemo(() => (period ? topOf(data, kind, period, by, MANY) : []), [data, kind, period, by])
-  const shown = open ? top : top.slice(0, FEW)
+  const moreBtn = useRef<HTMLButtonElement>(null)
+  const lessBtn = useRef<HTMLButtonElement>(null)
+  const top = useMemo(() => (period ? topView(data, kind, period, by, TOP_MAX) : []), [data, kind, period, by])
+  // Quem subiu ou caiu desde o período anterior (o mês, o semestre, o ano ou o ano de antes).
+  const before = useMemo(() => (period ? previousRanksView(data, kind, period, by, TOP_MAX) : null), [data, kind, period, by])
+  const shown = top.slice(0, STEPS[step])
   const album = by === 'albums' ? albums(data).list : null
+  // "Música nova", "artista novo": só as músicas (no português e no espanhol) pedem o feminino.
+  const female = by === 'songs' && !podcast
 
-  const toggle = () => {
+  // O botão clicado pode sumir (no top 200 não há mais o que ver; fechando, não há o que fechar):
+  // o foco passa para o outro, sem rolar a página.
+  const go = (e: MouseEvent<HTMLButtonElement>, next: number) => {
+    const focused = document.activeElement === e.currentTarget
+    flushSync(() => setOpen({ view, step: next }))
+    const target = next > step ? (moreBtn.current ? null : lessBtn.current) : moreBtn.current
+    if (focused) target?.focus({ preventScroll: true })
+  }
+  const less = (e: MouseEvent<HTMLButtonElement>) => {
     // Fechando lá embaixo: volta para o começo da grade antes que ela encolha.
     const r = grid.current?.getBoundingClientRect()
-    if (open && r && r.top < 0) window.scrollTo({ top: window.scrollY + r.top - 112, behavior: reducedMotion() ? 'auto' : 'smooth' })
-    setOpen(!open)
+    if (r && r.top < 0) window.scrollTo({ top: window.scrollY + r.top - 112, behavior: reducedMotion() ? 'auto' : 'smooth' })
+    go(e, 0)
   }
 
   return (
@@ -98,12 +151,17 @@ function Tops({ data, kind }: { data: Dataset; kind: KindFilter }) {
             </button>
           ))}
         </div>
-        <div className="segmented" role="group" aria-label={tr('Mostrar', 'Show', 'Mostrar')}>
-          {kinds.map((k) => (
-            <button key={k} className={k === by ? 'on' : ''} aria-pressed={k === by} onClick={() => setBy(k)}>
-              {byLabel(k, podcast)}
-            </button>
-          ))}
+        <div className="top-kinds">
+          <div className="segmented" role="group" aria-label={tr('Mostrar', 'Show', 'Mostrar')}>
+            {kinds.map((k) => (
+              <button key={k} className={k === by ? 'on' : ''} aria-pressed={k === by} onClick={() => setBy(k)}>
+                {byLabel(k, podcast)}
+              </button>
+            ))}
+          </div>
+          {period && top.length > 0 && (
+            <TopStory data={data} kind={kind} period={period} by={by} top={top} before={before} title={byLabel(by, podcast)} chip={periodLabel(period.id)} />
+          )}
         </div>
       </div>
       {shown.length === 0 ? (
@@ -116,18 +174,16 @@ function Tops({ data, kind }: { data: Dataset; kind: KindFilter }) {
             const creator = by === 'artists' ? r.id : album ? album[r.id].creator : data.items[r.id].creator
             const image: ImageRef | undefined =
               by === 'artists' ? artistRef(data, r.id) : album ? { kind: 'album', artist: r.sub, album: r.name } : itemRef(data, r.id)
+            const was = before?.get(r.id)
+            const tip = `${name}${r.sub ? `, ${tr('de', 'by', 'de')} ${r.sub}` : ''}: ${hours(r.ms)}, ${playCount(r.plays)}`
             return (
-              <li
-                key={r.id}
-                title={tr(
-                  `${name}${r.sub ? `, de ${r.sub}` : ''}: ${hours(r.ms)}, ${num(r.plays)} reproduções`,
-                  `${name}${r.sub ? `, by ${r.sub}` : ''}: ${hours(r.ms)}, ${num(r.plays)} plays`,
-                  `${name}${r.sub ? `, de ${r.sub}` : ''}: ${hours(r.ms)}, ${num(r.plays)} reproducciones`,
-                )}
-              >
+              <li key={r.id} title={before ? `${tip} (${moveText(i + 1, was, female)})` : tip}>
                 <div className="wall-art">
                   <Art image={image} label={name} round={false} />
-                  <span className="badge">{i + 1}</span>
+                  <span className="badge">
+                    {i + 1}
+                    {before && <Move rank={i + 1} before={was} female={female} />}
+                  </span>
                   {song && <PlayButton track={trackOf(data, r.id)} className="play-over" />}
                 </div>
                 <a className="wall-name" href={song ? songHref(r.id) : artistHref(creator)}>
@@ -139,11 +195,18 @@ function Tops({ data, kind }: { data: Dataset; kind: KindFilter }) {
           })}
         </ol>
       )}
-      {top.length > FEW && (
+      {top.length > STEPS[0] && (
         <div className="more">
-          <button className="ghost" aria-expanded={open} onClick={toggle}>
-            {open ? tr('Ver menos', 'Show less', 'Ver menos') : tr('Ver mais', 'Show more', 'Ver más')}
-          </button>
+          {step > 0 && (
+            <button ref={lessBtn} className="ghost" onClick={less}>
+              {tr('Ver menos', 'Show less', 'Ver menos')}
+            </button>
+          )}
+          {top.length > shown.length && (
+            <button ref={moreBtn} className="ghost" onClick={(e) => go(e, step + 1)}>
+              {tr('Ver mais', 'Show more', 'Ver más')}
+            </button>
+          )}
         </div>
       )}
     </Section>
@@ -151,7 +214,7 @@ function Tops({ data, kind }: { data: Dataset; kind: KindFilter }) {
 }
 
 export function LinhaDoTempo({ data, kind, theme }: Props) {
-  const t = useMemo(() => timeline(data, kind), [data, kind])
+  const t = useMemo(() => timelineView(data, kind), [data, kind])
   const c = chartColors(theme, 'amber')
   const who = useMemo(() => WHO[kind](), [kind])
 

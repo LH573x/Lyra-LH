@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react'
 import type { Dataset } from './data/types'
-import { loadFiles } from './data/load'
-import { clearSaved, loadSaved, save } from './data/store'
+import { loadFiles, openSaved, stopLoading } from './data/load'
+import { clearSaved } from './data/store'
 import { takeSharedFiles } from './data/shared'
 import { hasPodcasts, years, type Filter } from './data/stats'
 import { Upload } from './pages/Upload'
@@ -122,7 +122,6 @@ export default function App() {
     setBusy(t('Preparando…', 'Getting ready…', 'Preparando…'))
     try {
       const d = await loadFiles(files, setBusy)
-      await save(d)
       setFilter({ year: null, kind: 'music' })
       setData(d)
     } catch (e) {
@@ -148,7 +147,7 @@ export default function App() {
           )
         return
       }
-      loadSaved().then((saved) => {
+      openSaved().then((saved) => {
         setData(saved.dataset)
         if (saved.outdated)
           setNotice(
@@ -164,6 +163,7 @@ export default function App() {
   }, [onFiles])
 
   const reset = async () => {
+    stopLoading()
     await clearSaved()
     setData(null)
   }
@@ -212,8 +212,8 @@ export default function App() {
       <p>
         {t('Seus dados ficam só neste aparelho', 'Your data stays on this device', 'Tus datos se quedan en este dispositivo')} ·{' '}
         {t('Fotos', 'Photos', 'Fotos')}: <a href="https://www.wikidata.org/">Wikidata</a> · {t('Capas', 'Covers', 'Portadas')}:{' '}
-        <a href="https://musicbrainz.org/">MusicBrainz</a> · {t('Prévias', 'Previews', 'Avances')}:{' '}
-        <a href="https://www.deezer.com/">Deezer</a>
+        <a href="https://www.deezer.com/">Deezer</a> {t('e', 'and', 'y')} <a href="https://musicbrainz.org/">MusicBrainz</a> ·{' '}
+        {t('Prévias', 'Previews', 'Avances')}: <a href="https://www.deezer.com/">Deezer</a>
         {hasConcerts() && (
           <>
             {' '}

@@ -1109,6 +1109,7 @@ a.podium-runner-name:hover {
 .more {
   display: flex;
   justify-content: center;
+  gap: 10px;
   margin: 8px 0 24px;
 }
 .more .ghost {
@@ -2240,8 +2241,73 @@ a.wall-name:hover {
 .top-pick .chips {
   flex: 0 1 auto;
 }
+/* O tipo e, ao lado, o botão de compartilhar o top 10 como story. */
+.top-kinds {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ghost.share-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: var(--surface);
+}
+.ghost.share-icon:hover {
+  background: var(--surface-2);
+}
+.ghost.share-icon svg {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
 .wall.tops {
   grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+/* A posição num selo discreto dentro da capa, com a seta de quem subiu ou caiu desde o período anterior. */
+.tops .wall-art .badge {
+  display: flex;
+  gap: 5px;
+  top: 8px;
+  left: 8px;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: rgba(12, 12, 12, 0.6);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #ffffff;
+  font: 700 14px/1 var(--display);
+  box-shadow: none;
+}
+.move {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.move svg {
+  width: 8px;
+  height: 6px;
+  fill: currentColor;
+}
+/* Cores claras: o selo é escuro nos dois temas. */
+.move.up {
+  color: #5fe39a;
+}
+.move.down {
+  color: #ff8a8a;
+}
+.move.new {
+  color: #ffc857;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 .tops .wall-value {
   overflow: hidden;
@@ -2787,6 +2853,13 @@ a.find-card:hover {
   .wall.tops {
     gap: 16px 8px;
   }
+  /* O tipo na linha de baixo, à esquerda, e o compartilhar no canto direito. */
+  .top-kinds {
+    flex: 1 1 100%;
+  }
+  .top-kinds .share-icon {
+    margin-left: auto;
+  }
   .tops .wall-art {
     margin-bottom: 6px;
   }
@@ -2795,13 +2868,25 @@ a.find-card:hover {
     box-shadow: 0 6px 14px var(--shadow);
   }
   .tops .wall-art .badge {
-    top: 4px;
-    left: 4px;
-    min-width: 20px;
-    height: 20px;
-    padding: 0 5px;
-    font-size: 12px;
-    box-shadow: none;
+    gap: 3px;
+    top: 3px;
+    left: 3px;
+    min-width: 15px;
+    height: 14px;
+    padding: 0 4px;
+    border-radius: 4px;
+    font-size: 10px;
+  }
+  .tops .move {
+    font-size: 9px;
+  }
+  .tops .move svg {
+    width: 6px;
+    height: 5px;
+  }
+  .tops .move.new {
+    font-size: 7px;
+    letter-spacing: 0.04em;
   }
   .tops .wall-name {
     font-size: 11px;

@@ -1,7 +1,8 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import type { Dataset } from '../data/types'
 import type { Filter, KindFilter } from '../data/stats'
-import { forgotten, records, yearProfile, type YearProfile } from '../data/curiosities'
+import type { YearProfile } from '../data/curiosities'
+import { forgottenCount, forgottenView, recordsView, yearProfileView } from '../data/views'
 import { artistRef, itemRef } from '../data/refs'
 import { Art, Thumb } from '../ui/Thumb'
 import { artistHref, songHref } from '../ui/links'
@@ -36,7 +37,7 @@ function Rec({ media, label, big, text, play }: { media: ReactNode; label: strin
 
 /** Recordes em cartões iguais, um embaixo do outro no celular. */
 export function Recordes({ data, filter }: { data: Dataset; filter: Filter }) {
-  const r = useMemo(() => records(data, filter), [data, filter])
+  const r = useMemo(() => recordsView(data, filter), [data, filter])
   const song = (id: number) => ({ name: cleanTitle(data.items[id].name), artist: data.creators[data.items[id].creator] })
   const link = (id: number) => (
     <a href={songHref(id)}>
@@ -138,8 +139,8 @@ export function Recordes({ data, filter }: { data: Dataset; filter: Filter }) {
 /** Músicas muito ouvidas que não tocam há mais de um ano, com a capa desbotada. */
 export function Esquecidas({ data, filter }: { data: Dataset; filter: Filter }) {
   // Linhas cheias: duas de 4 no computador, três de 3 no celular.
-  const n = useMedia(PHONE) ? 9 : 8
-  const list = useMemo(() => forgotten(data, filter, n), [data, filter, n])
+  const n = forgottenCount(useMedia(PHONE))
+  const list = useMemo(() => forgottenView(data, filter, n), [data, filter, n])
   if (list.length === 0)
     return (
       <p className="empty-note">
@@ -209,8 +210,8 @@ export function Comparar({ data, years, filter }: { data: Dataset; years: number
     return [a, b] as const
   }
   const [[a, b], setPair] = useState(initial)
-  const pa = useMemo(() => yearProfile(data, a, filter.kind), [data, a, filter.kind])
-  const pb = useMemo(() => yearProfile(data, b, filter.kind), [data, b, filter.kind])
+  const pa = useMemo(() => yearProfileView(data, a, filter.kind), [data, a, filter.kind])
+  const pb = useMemo(() => yearProfileView(data, b, filter.kind), [data, b, filter.kind])
   const words = KIND_WORDS()[filter.kind]
 
   if (years.length < 2)

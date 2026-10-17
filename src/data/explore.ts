@@ -1,8 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { Dataset } from './types'
-import { norm } from './search'
-import { creatorOf } from './stats'
-import { lowerBound } from './calendar'
+import { artistKey, known, titleKey, topArtists, type Known } from './library'
 import { findArtist, previewOf, related, topTracks, type DzArtist, type DzTrack } from './deezer'
 
 /*
@@ -10,69 +8,11 @@ import { findArtist, previewOf, related, topTracks, type DzArtist, type DzTrack 
  * Tudo o que já está no seu histórico (artistas e músicas) fica de fora.
  */
 
-/**
- * Nome de música comparável, sem a versão: tudo entre parênteses ou colchetes e tudo depois de " - " sai.
- * "Enemy (with JID) - from the series Arcane League of Legends", "Enemy (Live)" e "Enemy" viram "enemy".
- */
-const titleKey = (s: string) => norm(s.replace(/\s*[([][^)\]]*[)\]]/g, ' ').replace(/\s+[-–—]\s.*$/, '')) || norm(s)
-
-// "(feat. JID)", "(with JID)", "(com Anitta)": quem aparece de convidado também conta como artista que você já ouviu.
-const GUESTS = /[([](?:feat\.?|ft\.?|featuring|with|com|con)\s+([^)\]]+)[)\]]/gi
-const SPLIT = /\s*(?:,|&|\+|\band\b|\bx\b|\be\b|\by\b)\s*/i
-/** Nome de artista comparável, sem espaços: "J.I.D" e "JID", "AC/DC" e "ACDC" batem. */
-const artistKey = (s: string) => norm(s).replace(/ /g, '')
-
-interface Known {
-  artists: Set<string>
-  /** Artista → músicas ouvidas dele. */
-  songs: Map<string, Set<string>>
-}
-
-const knownCache = new WeakMap<Dataset, Known>()
-function known(d: Dataset): Known {
-  let k = knownCache.get(d)
-  if (k) return k
-  k = { artists: new Set(), songs: new Map() }
-  // Uma vez por artista, não por música.
-  const keys: string[] = []
-  for (const it of d.items) {
-    if (it.kind !== 'music') continue
-    const a = (keys[it.creator] ??= artistKey(d.creators[it.creator]))
-    k.artists.add(a)
-    for (const [, guests] of it.name.matchAll(GUESTS)) {
-      k.artists.add(artistKey(guests))
-      for (const g of guests.split(SPLIT)) if (g) k.artists.add(artistKey(g))
-    }
-    let set = k.songs.get(a)
-    if (!set) k.songs.set(a, (set = new Set()))
-    set.add(titleKey(it.name))
-  }
-  knownCache.set(d, k)
-  return k
-}
+export { topArtists }
 
 const knowsArtist = (k: Known, name: string) => k.artists.has(artistKey(name)) || hidden.has(artistHideKey(name))
 const knowsSong = (k: Known, t: DzTrack, artist = t.artist) =>
   (k.songs.get(artistKey(artist))?.has(titleKey(t.title)) ?? false) || hidden.has(songKey(t))
-
-/** O ranking de sempre não muda: a roleta pede de novo a cada giro. */
-const allTime = new WeakMap<Dataset, number[]>()
-
-/** Seus artistas de música mais ouvidos (a partir de `since`, em ms). */
-export function topArtists(d: Dataset, n: number, since = -Infinity): { id: number; name: string }[] {
-  let ids = since === -Infinity ? allTime.get(d) : undefined
-  if (!ids) {
-    const total = new Float64Array(d.creators.length)
-    const { start, ms, item } = d.plays
-    const creator = creatorOf(d)
-    const music = Uint8Array.from(d.items, (it) => (it.kind === 'music' ? 1 : 0))
-    // As reproduções estão em ordem: começa direto na primeira depois de `since`.
-    for (let i = lowerBound(start, since); i < item.length; i++) if (music[item[i]]) total[creator[item[i]]] += ms[i]
-    ids = [...total.keys()].filter((c) => total[c] > 0).sort((a, b) => total[b] - total[a])
-    if (since === -Infinity) allTime.set(d, ids)
-  }
-  return ids.slice(0, n).map((id) => ({ id, name: d.creators[id] }))
-}
 
 // Sorteio com semente: a mesma semana e os mesmos dados dão sempre as mesmas descobertas.
 function rng(seed: string) {

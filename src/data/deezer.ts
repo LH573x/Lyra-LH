@@ -1,9 +1,9 @@
 import { norm } from './search'
 
 /*
- * Deezer: artistas parecidos, músicas mais tocadas e prévias de 30 segundos, sem login nem chave.
+ * Deezer: artistas parecidos, músicas mais tocadas, prévias de 30 segundos e capas de álbuns, sem login nem chave.
  * A API não libera leitura direta pelo navegador (CORS), então os pedidos vão por JSONP (uma tag <script>).
- * Daqui só saem nomes de artistas; o histórico continua no aparelho.
+ * Daqui só saem nomes de artistas e de álbuns; o histórico continua no aparelho.
  */
 
 export interface DzArtist {
@@ -200,6 +200,25 @@ export function topTracks(id: number): Promise<DzTrack[]> {
     list.forEach(keep)
     return list.map(toTrack)
   })
+}
+
+interface RawAlbum {
+  title: string
+  cover_medium?: string
+  artist?: { name: string }
+}
+
+export interface DzAlbum {
+  title: string
+  artist: string
+  /** Capa de 250 px. */
+  cover: string
+}
+
+/** Álbuns que a busca do Deezer acha para o texto (artista e nome do álbum), os mais prováveis primeiro. */
+export async function searchAlbums(q: string): Promise<DzAlbum[]> {
+  const r = await call<Page<RawAlbum>>(`/search/album?q=${encodeURIComponent(q)}&limit=10`)
+  return (r.data ?? []).flatMap((a) => (a.cover_medium && a.artist ? [{ title: a.title, artist: a.artist.name, cover: a.cover_medium }] : []))
 }
 
 /** Abre a música no Spotify (busca pelo nome e artista: sem login não dá para saber o endereço exato). */

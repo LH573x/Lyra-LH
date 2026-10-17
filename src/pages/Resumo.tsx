@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { Dataset } from '../data/types'
-import { summarize, yearTops, type Filter, type Ranked } from '../data/stats'
+import type { Filter, Ranked } from '../data/stats'
+import { summaryView, yearTopsView } from '../data/views'
 import { CoverWall, Podium, Section, StatStrip, type RankItem } from '../ui/blocks'
 import { TocaDiscos } from '../ui/TocaDiscos'
 import { artistHref, songHref } from '../ui/links'
@@ -41,8 +42,8 @@ const NOUNS = () => ({
 })
 
 export function Resumo({ data, filter, theme, onYear }: Props) {
-  const s = useMemo(() => summarize(data, filter), [data, filter])
-  const discs = useMemo(() => yearTops(data, filter.kind), [data, filter.kind])
+  const s = useMemo(() => summaryView(data, filter), [data, filter])
+  const discs = useMemo(() => yearTopsView(data, filter.kind), [data, filter.kind])
   const c = chartColors(theme, 'green')
   const nouns = NOUNS()[filter.kind]
 
