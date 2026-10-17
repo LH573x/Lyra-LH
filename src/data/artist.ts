@@ -1,5 +1,6 @@
 import type { Dataset } from './types'
-import { MIN_PLAY_MS } from './stats'
+import { MIN_PLAY_MS, Tally, creatorOf } from './stats'
+import { calendar, monthKeyOf } from './calendar'
 
 export interface ArtistDetail {
   id: number
@@ -18,75 +19,75 @@ export interface ArtistDetail {
   itemCount: number
 }
 
-const pad = (n: number) => String(n).padStart(2, '0')
-const monthKey = (dt: Date) => `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}`
-
 export function artistDetail(d: Dataset, id: number): ArtistDetail | null {
   if (!d.creators[id]) return null
   const { start, ms, item } = d.plays
+  const cal = calendar(d)
+  const creator = creatorOf(d)
   const kind = d.items.find((it) => it.creator === id)?.kind ?? 'music'
+  const sameKind = Uint8Array.from(d.items, (it) => (it.kind === kind ? 1 : 0))
 
   // Totais de todos os criadores do mesmo tipo, para a posição no ranking geral e por ano.
-  const totals = new Map<number, number>()
-  const yearTotals = new Map<number, Map<number, number>>()
-  const byMonth = new Map<string, number>()
-  const byItem = new Map<number, { ms: number; plays: number }>()
+  const totals = new Float64Array(d.creators.length)
+  const yearMs = new Float64Array(d.creators.length)
+  let yearCreators: number[] = []
+  let year = NaN
+  const yearly: ArtistDetail['yearly'] = []
+  const closeYear = () => {
+    const mine = yearMs[id]
+    if (mine > 0) {
+      let rank = 1
+      for (const c of yearCreators) if (yearMs[c] > mine) rank++
+      yearly.push({ year, ms: mine, rank })
+    }
+    for (const c of yearCreators) yearMs[c] = 0
+    yearCreators = []
+  }
+  const byMonth = new Map<number, number>()
+  const byItem = new Tally(d.items.length)
   let totalMs = 0
   let plays = 0
   let first: ArtistDetail['first'] = null
   let last: ArtistDetail['last'] = null
 
-  for (let i = 0; i < start.length; i++) {
-    const it = d.items[item[i]]
-    if (it.kind !== kind) continue
-    const c = it.creator
+  for (let i = 0; i < item.length; i++) {
+    const it = item[i]
+    if (!sameKind[it]) continue
+    const c = creator[it]
     const played = ms[i]
-    const dt = new Date(start[i])
-    const y = dt.getFullYear()
-    totals.set(c, (totals.get(c) ?? 0) + played)
-    let yt = yearTotals.get(y)
-    if (!yt) yearTotals.set(y, (yt = new Map()))
-    yt.set(c, (yt.get(c) ?? 0) + played)
+    if (cal.year[i] !== year) {
+      closeYear()
+      year = cal.year[i]
+    }
+    totals[c] += played
+    if (yearMs[c] === 0) yearCreators.push(c)
+    yearMs[c] += played
     if (c !== id) continue
 
     totalMs += played
-    const mk = monthKey(dt)
-    byMonth.set(mk, (byMonth.get(mk) ?? 0) + played)
-    const e = byItem.get(item[i]) ?? { ms: 0, plays: 0 }
-    e.ms += played
+    byMonth.set(cal.month[i], (byMonth.get(cal.month[i]) ?? 0) + played)
+    byItem.add(it, played)
     if (played >= MIN_PLAY_MS) {
-      e.plays++
       plays++
-      first ??= { t: start[i], item: it.name }
-      last = { t: start[i], item: it.name }
+      first ??= { t: start[i], item: d.items[it].name }
+      last = { t: start[i], item: d.items[it].name }
     }
-    byItem.set(item[i], e)
   }
+  closeYear()
   if (totalMs === 0) return null
 
-  const rankOf = totals.size
-  const rank = [...totals.values()].filter((v) => v > totalMs).length + 1
-
-  const months = [...byMonth.keys()].sort()
-  const monthly: ArtistDetail['monthly'] = []
-  if (months.length) {
-    const [fy, fm] = months[0].split('-').map(Number)
-    const lastKey = months[months.length - 1]
-    const cur = new Date(fy, fm - 1, 1)
-    while (monthKey(cur) <= lastKey) {
-      const k = monthKey(cur)
-      monthly.push({ month: k, hours: (byMonth.get(k) ?? 0) / 3.6e6 })
-      cur.setMonth(cur.getMonth() + 1)
-    }
+  let rank = 1
+  let rankOf = 0
+  for (let c = 0; c < totals.length; c++) {
+    if (totals[c] === 0) continue
+    rankOf++
+    if (totals[c] > totalMs) rank++
   }
 
-  const yearly = [...yearTotals.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .flatMap(([year, m]) => {
-      const mine = m.get(id)
-      if (!mine) return []
-      return [{ year, ms: mine, rank: [...m.values()].filter((v) => v > mine).length + 1 }]
-    })
+  // Os meses vêm em ordem; os sem nada entram com zero, para o gráfico não pular buracos.
+  const months = [...byMonth.keys()]
+  const monthly: ArtistDetail['monthly'] = []
+  for (let m = months[0]; m <= months[months.length - 1]; m++) monthly.push({ month: monthKeyOf(m), hours: (byMonth.get(m) ?? 0) / 3.6e6 })
 
   return {
     id,
@@ -100,10 +101,7 @@ export function artistDetail(d: Dataset, id: number): ArtistDetail | null {
     last,
     monthly,
     yearly,
-    topItems: [...byItem.entries()]
-      .sort((a, b) => b[1].ms - a[1].ms)
-      .slice(0, 10)
-      .map(([iid, v]) => ({ id: iid, name: d.items[iid].name, album: d.items[iid].album, ms: v.ms, plays: v.plays })),
-    itemCount: byItem.size,
+    topItems: byItem.top(10).map((iid) => ({ id: iid, name: d.items[iid].name, album: d.items[iid].album, ms: byItem.ms[iid], plays: byItem.plays[iid] })),
+    itemCount: byItem.ids.length,
   }
 }

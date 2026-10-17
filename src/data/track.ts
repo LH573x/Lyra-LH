@@ -1,6 +1,6 @@
 import { FLAG_SKIPPED, type Dataset } from './types'
-import { MIN_PLAY_MS } from './stats'
-import { dayKey } from './habits'
+import { MIN_PLAY_MS, creatorOf } from './stats'
+import { calendar, dayKeyOf, monthKeyOf } from './calendar'
 
 export interface TrackDetail {
   id: number
@@ -32,15 +32,30 @@ export interface TrackDetail {
   byHour: number[]
 }
 
-const pad = (n: number) => String(n).padStart(2, '0')
-const monthKey = (dt: Date) => `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}`
-
 export function trackDetail(d: Dataset, id: number): TrackDetail | null {
   const me = d.items[id]
   if (!me) return null
   const { start, ms, item, flags } = d.plays
+  const cal = calendar(d)
+  const creator = creatorOf(d)
+  const sameKind = Uint8Array.from(d.items, (it) => (it.kind === me.kind ? 1 : 0))
   const totals = new Float64Array(d.items.length)
-  const yearTotals = new Map<number, Map<number, number>>()
+  // Total de cada música no ano corrente, para a posição dela em cada ano.
+  const yearMs = new Float64Array(d.items.length)
+  let yearItems: number[] = []
+  let year = NaN
+  let mine: { plays: number; ms: number } | null = null
+  const yearly: TrackDetail['yearly'] = []
+  const closeYear = () => {
+    if (mine) {
+      let rank = 1
+      for (const it of yearItems) if (yearMs[it] > mine.ms) rank++
+      yearly.push({ year, plays: mine.plays, ms: mine.ms, rank })
+    }
+    for (const it of yearItems) yearMs[it] = 0
+    yearItems = []
+    mine = null
+  }
   let artistMs = 0
   let totalMs = 0
   let plays = 0
@@ -48,42 +63,48 @@ export function trackDetail(d: Dataset, id: number): TrackDetail | null {
   let skips = 0
   let first: number | null = null
   let last: number | null = null
-  const byMonth = new Map<string, number>()
-  const byDay = new Map<string, number>()
-  const byYear = new Map<number, { plays: number; ms: number }>()
+  const byMonth = new Map<number, number>()
+  let days = 0
+  let day = NaN
+  let dayPlays = 0
+  let bestDay: { day: number; plays: number } | null = null
   const byHour = new Array<number>(24).fill(0)
 
-  for (let i = 0; i < start.length; i++) {
+  for (let i = 0; i < item.length; i++) {
     const it = item[i]
-    const other = d.items[it]
-    if (other.kind !== me.kind) continue
+    if (!sameKind[it]) continue
     const played = ms[i]
+    if (cal.year[i] !== year) {
+      closeYear()
+      year = cal.year[i]
+    }
     totals[it] += played
-    const dt = new Date(start[i])
-    const y = dt.getFullYear()
-    let yt = yearTotals.get(y)
-    if (!yt) yearTotals.set(y, (yt = new Map()))
-    yt.set(it, (yt.get(it) ?? 0) + played)
-    if (other.creator === me.creator) artistMs += played
+    if (yearMs[it] === 0) yearItems.push(it)
+    yearMs[it] += played
+    if (creator[it] === me.creator) artistMs += played
     if (it !== id) continue
 
     totalMs += played
     starts++
     if (flags[i] & FLAG_SKIPPED) skips++
-    const ye = byYear.get(y) ?? { plays: 0, ms: 0 }
-    ye.ms += played
-    byYear.set(y, ye)
+    mine ??= { plays: 0, ms: 0 }
+    mine.ms += played
     if (played < MIN_PLAY_MS) continue
     plays++
-    ye.plays++
+    mine.plays++
     first ??= start[i]
     last = start[i]
-    const mk = monthKey(dt)
-    byMonth.set(mk, (byMonth.get(mk) ?? 0) + 1)
-    const dk = dayKey(dt)
-    byDay.set(dk, (byDay.get(dk) ?? 0) + 1)
-    byHour[dt.getHours()]++
+    byMonth.set(cal.month[i], (byMonth.get(cal.month[i]) ?? 0) + 1)
+    if (cal.day[i] !== day) {
+      day = cal.day[i]
+      dayPlays = 0
+      days++
+    }
+    dayPlays++
+    if (!bestDay || dayPlays > bestDay.plays) bestDay = { day, plays: dayPlays }
+    byHour[cal.hour[i]]++
   }
+  closeYear()
   if (totalMs === 0) return null
 
   let rank = 1
@@ -94,28 +115,9 @@ export function trackDetail(d: Dataset, id: number): TrackDetail | null {
     if (totals[it] > totalMs) rank++
   }
 
-  const months = [...byMonth.keys()].sort()
+  const months = [...byMonth.keys()]
   const monthly: TrackDetail['monthly'] = []
-  if (months.length) {
-    const [fy, fm] = months[0].split('-').map(Number)
-    const lastKey = months[months.length - 1]
-    const cur = new Date(fy, fm - 1, 1)
-    while (monthKey(cur) <= lastKey) {
-      const k = monthKey(cur)
-      monthly.push({ month: k, plays: byMonth.get(k) ?? 0 })
-      cur.setMonth(cur.getMonth() + 1)
-    }
-  }
-
-  let bestDay: TrackDetail['bestDay'] = null
-  for (const [day, n] of byDay) if (!bestDay || n > bestDay.plays) bestDay = { day, plays: n }
-
-  const yearly = [...byYear.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([year, v]) => {
-      const yt = yearTotals.get(year)!
-      return { year, plays: v.plays, ms: v.ms, rank: [...yt.values()].filter((x) => x > v.ms).length + 1 }
-    })
+  if (months.length) for (let m = months[0]; m <= months[months.length - 1]; m++) monthly.push({ month: monthKeyOf(m), plays: byMonth.get(m) ?? 0 })
 
   return {
     id,
@@ -132,8 +134,8 @@ export function trackDetail(d: Dataset, id: number): TrackDetail | null {
     artistShare: artistMs ? totalMs / artistMs : 0,
     first,
     last,
-    days: byDay.size,
-    bestDay,
+    days,
+    bestDay: bestDay && { day: dayKeyOf(bestDay.day), plays: bestDay.plays },
     monthly,
     yearly,
     byHour,

@@ -1,4 +1,5 @@
 import { FLAG_PODCAST, type Dataset } from './types'
+import { calendar, monthKeyOf, yearRange } from './calendar'
 
 export type KindFilter = 'all' | 'music' | 'podcast'
 
@@ -36,10 +37,7 @@ export interface Summary {
 }
 
 export function years(d: Dataset): number[] {
-  const set = new Set<number>()
-  const s = d.plays.start
-  for (let i = 0; i < s.length; i++) set.add(new Date(s[i]).getFullYear())
-  return [...set].sort((a, b) => a - b)
+  return [...calendar(d).years]
 }
 
 export function hasPodcasts(d: Dataset): boolean {
@@ -52,86 +50,114 @@ export function kindMatches(flags: number, kind: KindFilter): boolean {
   return kind === 'podcast' ? podcast : !podcast
 }
 
-const pad = (n: number) => String(n).padStart(2, '0')
-const monthKey = (dt: Date) => `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}`
-const dayKey = (dt: Date) => `${monthKey(dt)}-${pad(dt.getDate())}`
+const creators = new WeakMap<Dataset, Int32Array>()
 
-export function top(map: Map<number, { ms: number; plays: number }>, n: number, label: (id: number) => [string, string]): Ranked[] {
-  return [...map.entries()]
-    .sort((a, b) => b[1].ms - a[1].ms)
-    .slice(0, n)
-    .map(([id, v]) => {
-      const [name, sub] = label(id)
-      return { id, name, sub, ms: v.ms, plays: v.plays }
-    })
+/** O artista (ou podcast) de cada música, num array só: os laços leem daqui. */
+export function creatorOf(d: Dataset): Int32Array {
+  let c = creators.get(d)
+  if (!c) {
+    c = Int32Array.from(d.items, (it) => it.creator)
+    creators.set(d, c)
+  }
+  return c
 }
+
+/**
+ * Tempo e reproduções somados por artista (ou música), lembrando a ordem em que cada um
+ * apareceu: no empate, fica na frente quem você ouviu primeiro.
+ */
+export class Tally {
+  ms: Float64Array
+  plays: Int32Array
+  ids: number[] = []
+  constructor(size: number) {
+    this.ms = new Float64Array(size)
+    this.plays = new Int32Array(size)
+  }
+  add(id: number, ms: number) {
+    // Toda reprodução tem pelo menos 1 ms: zero quer dizer que é a primeira vez.
+    if (this.ms[id] === 0) this.ids.push(id)
+    this.ms[id] += ms
+    if (ms >= MIN_PLAY_MS) this.plays[id]++
+  }
+  /** Os `n` com mais tempo. */
+  top(n: number): number[] {
+    const ms = this.ms
+    return this.ids
+      .slice()
+      .sort((a, b) => ms[b] - ms[a])
+      .slice(0, n)
+  }
+  ranked(n: number, label: (id: number) => [string, string]): Ranked[] {
+    return this.top(n).map((id) => {
+      const [name, sub] = label(id)
+      return { id, name, sub, ms: this.ms[id], plays: this.plays[id] }
+    })
+  }
+}
+
+export const creatorLabel = (d: Dataset) => (id: number): [string, string] => [d.creators[id], '']
+export const itemLabel = (d: Dataset) => (id: number): [string, string] => [d.items[id].name, d.creators[d.items[id].creator]]
 
 export function summarize(d: Dataset, f: Filter, topN = 10): Summary {
   const { start, ms, item, flags } = d.plays
-  const byCreator = new Map<number, { ms: number; plays: number }>()
-  const byItem = new Map<number, { ms: number; plays: number }>()
-  const byMonth = new Map<string, number>()
-  const days = new Set<string>()
+  const cal = calendar(d)
+  const creator = creatorOf(d)
+  const byCreator = new Tally(d.creators.length)
+  const byItem = new Tally(d.items.length)
+  const [lo, hi] = yearRange(d, f.year)
   let totalMs = 0
   let plays = 0
-  let previousYearMs = 0
-  let first: number | null = null
-  let last: number | null = null
+  let activeDays = 0
+  let day = NaN
+  let firstAt = -1
+  let lastAt = -1
 
-  for (let i = 0; i < start.length; i++) {
+  // Os meses do período, em ordem (os índices crescem junto com as reproduções).
+  const month0 = f.year !== null ? f.year * 12 : lo < hi ? cal.month[lo] : 0
+  const byMonth = new Float64Array(f.year !== null ? 12 : lo < hi ? cal.month[hi - 1] - month0 + 1 : 0)
+
+  for (let i = lo; i < hi; i++) {
     if (!kindMatches(flags[i], f.kind)) continue
-    const dt = new Date(start[i])
-    const y = dt.getFullYear()
-    if (f.year !== null && y !== f.year) {
-      if (y === f.year - 1) previousYearMs += ms[i]
-      continue
-    }
     const played = ms[i]
-    const counted = played >= MIN_PLAY_MS ? 1 : 0
     totalMs += played
-    plays += counted
-    first ??= start[i]
-    last = start[i]
-    days.add(dayKey(dt))
-    const mk = monthKey(dt)
-    byMonth.set(mk, (byMonth.get(mk) ?? 0) + played)
-
+    if (played >= MIN_PLAY_MS) plays++
+    if (firstAt < 0) firstAt = i
+    lastAt = i
+    if (cal.day[i] !== day) {
+      day = cal.day[i]
+      activeDays++
+    }
+    byMonth[cal.month[i] - month0] += played
     const it = item[i]
-    const c = d.items[it].creator
-    const ce = byCreator.get(c)
-    if (ce) {
-      ce.ms += played
-      ce.plays += counted
-    } else byCreator.set(c, { ms: played, plays: counted })
-    const ie = byItem.get(it)
-    if (ie) {
-      ie.ms += played
-      ie.plays += counted
-    } else byItem.set(it, { ms: played, plays: counted })
+    byCreator.add(creator[it], played)
+    byItem.add(it, played)
+  }
+
+  let previousYearMs = 0
+  if (f.year !== null) {
+    const [plo, phi] = yearRange(d, f.year - 1)
+    for (let i = plo; i < phi; i++) if (kindMatches(flags[i], f.kind)) previousYearMs += ms[i]
   }
 
   // Meses contínuos (inclui meses sem nada, com zero), para a linha não "pular" buracos.
   const monthly: Summary['monthly'] = []
-  if (first !== null && last !== null) {
-    const cur = new Date(f.year ?? new Date(first).getFullYear(), f.year ? 0 : new Date(first).getMonth(), 1)
-    const end = f.year ? new Date(f.year, 11, 1) : new Date(new Date(last).getFullYear(), new Date(last).getMonth(), 1)
-    while (cur <= end) {
-      const k = monthKey(cur)
-      monthly.push({ month: k, hours: (byMonth.get(k) ?? 0) / 3.6e6 })
-      cur.setMonth(cur.getMonth() + 1)
-    }
+  if (firstAt >= 0) {
+    const from = f.year !== null ? month0 : cal.month[firstAt]
+    const to = f.year !== null ? month0 + 11 : cal.month[lastAt]
+    for (let m = from; m <= to; m++) monthly.push({ month: monthKeyOf(m), hours: byMonth[m - month0] / 3.6e6 })
   }
 
   return {
     totalMs,
     plays,
-    creators: byCreator.size,
-    items: byItem.size,
-    activeDays: days.size,
-    first,
-    last,
-    topCreators: top(byCreator, topN, (id) => [d.creators[id], '']),
-    topItems: top(byItem, topN, (id) => [d.items[id].name, d.creators[d.items[id].creator]]),
+    creators: byCreator.ids.length,
+    items: byItem.ids.length,
+    activeDays,
+    first: firstAt < 0 ? null : start[firstAt],
+    last: lastAt < 0 ? null : start[lastAt],
+    topCreators: byCreator.ranked(topN, creatorLabel(d)),
+    topItems: byItem.ranked(topN, itemLabel(d)),
     monthly,
     previousYearMs: f.year !== null && previousYearMs > 0 ? previousYearMs : null,
   }
@@ -147,33 +173,32 @@ export interface YearTop {
 
 /** Para cada ano (e para todos juntos), o artista mais ouvido: vai na capa do disco daquele ano. */
 export function yearTops(d: Dataset, kind: KindFilter): YearTop[] {
-  const { start, ms, item, flags } = d.plays
-  const perYear = new Map<number, Map<number, number>>()
-  const all = new Map<number, number>()
-  const totals = new Map<number, number>()
+  const { ms, item, flags } = d.plays
+  const creator = creatorOf(d)
+  const all = new Tally(d.creators.length)
   let allMs = 0
-  for (const y of years(d)) {
-    perYear.set(y, new Map())
-    totals.set(y, 0)
+  const out: YearTop[] = []
+  for (const year of calendar(d).years) {
+    const [lo, hi] = yearRange(d, year)
+    const y = new Tally(d.creators.length)
+    let total = 0
+    for (let i = lo; i < hi; i++) {
+      if (!kindMatches(flags[i], kind)) continue
+      const c = creator[item[i]]
+      y.add(c, ms[i])
+      all.add(c, ms[i])
+      total += ms[i]
+    }
+    out.push({ year, top: best(d, y), ms: total })
+    allMs += total
   }
-  for (let i = 0; i < start.length; i++) {
-    if (!kindMatches(flags[i], kind)) continue
-    const y = new Date(start[i]).getFullYear()
-    const c = d.items[item[i]].creator
-    const m = perYear.get(y)!
-    m.set(c, (m.get(c) ?? 0) + ms[i])
-    all.set(c, (all.get(c) ?? 0) + ms[i])
-    totals.set(y, totals.get(y)! + ms[i])
-    allMs += ms[i]
-  }
-  const best = (m: Map<number, number>) => {
-    let id = -1
-    let v = 0
-    for (const [k, x] of m) if (x > v) [id, v] = [k, x]
-    return id < 0 ? null : d.creators[id]
-  }
-  return [
-    ...[...perYear.entries()].map(([year, m]) => ({ year, top: best(m), ms: totals.get(year)! })),
-    { year: null, top: best(all), ms: allMs },
-  ]
+  out.push({ year: null, top: best(d, all), ms: allMs })
+  return out
+}
+
+function best(d: Dataset, t: Tally): string | null {
+  let id = -1
+  let v = 0
+  for (const k of t.ids) if (t.ms[k] > v) [id, v] = [k, t.ms[k]]
+  return id < 0 ? null : d.creators[id]
 }

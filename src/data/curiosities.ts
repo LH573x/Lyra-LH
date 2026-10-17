@@ -1,6 +1,7 @@
 import type { Dataset } from './types'
-import { MIN_PLAY_MS, kindMatches, summarize, type Filter, type KindFilter, type Ranked } from './stats'
-import { DAY_PARTS, dayKey } from './habits'
+import { MIN_PLAY_MS, creatorOf, kindMatches, summarize, type Filter, type KindFilter, type Ranked } from './stats'
+import { DAY_PARTS } from './habits'
+import { calendar, dayKeyOf, yearRange } from './calendar'
 
 /** Pausa máxima entre duas faixas para ainda contar como a mesma sessão. */
 const SESSION_GAP_MS = 10 * 60_000
@@ -22,33 +23,55 @@ export interface Records {
   variety: { day: string; artists: number } | null
 }
 
+/** Marca de "nenhum dia" nos arrays de dias. */
+const NONE = -0x80000000
+
 export function records(d: Dataset, f: Filter): Records {
   const { start, ms, item, flags } = d.plays
+  const cal = calendar(d)
+  const creator = creatorOf(d)
   let marathon: Records['marathon'] = null
   let sStart = 0
   let sEnd = -Infinity
   let sTracks = 0
-  const perDayItem = new Map<string, number>()
-  let repeatDay: Records['repeatDay'] = null
-  const nights = new Map<string, number>()
+  let repeatDay: { item: number; day: number; count: number } | null = null
+  // Vezes que cada música tocou no dia `onDay[it]`.
+  const onDay = new Int32Array(d.items.length).fill(NONE)
+  const timesToday = new Int32Array(d.items.length)
+  let nightDay = NONE
+  let nightMs = 0
+  // Atribuídos dentro das funções de fechar (o `as` impede o TypeScript de achar que continuam null).
+  let lateNight = null as { day: number; ms: number } | null
   let artistRun: Records['artistRun'] = null
   let runCreator = -1
   let runCount = 0
   let runStart = 0
-  const days = new Map<number, Set<string>>()
+  // Dias diferentes de cada música (o último dia já contado fica em `lastDay`).
+  const lastDay = new Int32Array(d.items.length).fill(NONE)
+  const dayCount = new Int32Array(d.items.length)
+  const playedOrder: number[] = []
   let first: Records['first'] = null
-  const artistsByDay = new Map<string, Set<number>>()
+  // Artistas diferentes no dia `varietyDay`.
+  const creatorDay = new Int32Array(d.creators.length).fill(NONE)
+  let varietyDay = NONE
+  let artists = 0
+  let variety = null as { day: number; artists: number } | null
 
   const closeSession = () => {
     if (sTracks > 1 && (!marathon || sEnd - sStart > marathon.end - marathon.start)) {
       marathon = { start: sStart, end: sEnd, tracks: sTracks }
     }
   }
+  const closeNight = () => {
+    if (nightDay !== NONE && (!lateNight || nightMs > lateNight.ms)) lateNight = { day: nightDay, ms: nightMs }
+  }
+  const closeVariety = () => {
+    if (varietyDay !== NONE && (!variety || artists > variety.artists)) variety = { day: varietyDay, artists }
+  }
 
-  for (let i = 0; i < start.length; i++) {
+  const [lo, hi] = yearRange(d, f.year)
+  for (let i = lo; i < hi; i++) {
     if (!kindMatches(flags[i], f.kind)) continue
-    const dt = new Date(start[i])
-    if (f.year !== null && dt.getFullYear() !== f.year) continue
     const t = start[i]
     const played = ms[i]
 
@@ -62,18 +85,27 @@ export function records(d: Dataset, f: Filter): Records {
       sTracks = 1
     }
 
-    const k = dayKey(dt)
-    if (dt.getHours() < 6) nights.set(k, (nights.get(k) ?? 0) + played)
+    const day = cal.day[i]
+    if (cal.hour[i] < 6) {
+      if (day !== nightDay) {
+        closeNight()
+        nightDay = day
+        nightMs = 0
+      }
+      nightMs += played
+    }
     if (played < MIN_PLAY_MS) continue
 
     first ??= { item: item[i], t }
     const it = item[i]
-    const c = d.items[it].creator
+    const c = creator[it]
 
-    const dk = `${k}|${it}`
-    const n = (perDayItem.get(dk) ?? 0) + 1
-    perDayItem.set(dk, n)
-    if (!repeatDay || n > repeatDay.count) repeatDay = { item: it, day: k, count: n }
+    if (onDay[it] !== day) {
+      onDay[it] = day
+      timesToday[it] = 0
+    }
+    const n = ++timesToday[it]
+    if (!repeatDay || n > repeatDay.count) repeatDay = { item: it, day, count: n }
 
     if (c === runCreator) runCount++
     else {
@@ -83,24 +115,38 @@ export function records(d: Dataset, f: Filter): Records {
     }
     if (!artistRun || runCount > artistRun.count) artistRun = { creator: c, count: runCount, start: runStart }
 
-    let ds = days.get(it)
-    if (!ds) days.set(it, (ds = new Set()))
-    ds.add(k)
+    if (lastDay[it] !== day) {
+      if (lastDay[it] === NONE) playedOrder.push(it)
+      lastDay[it] = day
+      dayCount[it]++
+    }
 
-    let as = artistsByDay.get(k)
-    if (!as) artistsByDay.set(k, (as = new Set()))
-    as.add(c)
+    if (day !== varietyDay) {
+      closeVariety()
+      varietyDay = day
+      artists = 0
+    }
+    if (creatorDay[c] !== day) {
+      creatorDay[c] = day
+      artists++
+    }
   }
   closeSession()
+  closeNight()
+  closeVariety()
 
-  let lateNight: Records['lateNight'] = null
-  for (const [day, v] of nights) if (!lateNight || v > lateNight.ms) lateNight = { day, ms: v }
   let loyal: Records['loyal'] = null
-  for (const [it, s] of days) if (!loyal || s.size > loyal.days) loyal = { item: it, days: s.size }
-  let variety: Records['variety'] = null
-  for (const [day, s] of artistsByDay) if (!variety || s.size > variety.artists) variety = { day, artists: s.size }
+  for (const it of playedOrder) if (!loyal || dayCount[it] > loyal.days) loyal = { item: it, days: dayCount[it] }
 
-  return { marathon, repeatDay, lateNight, artistRun, loyal, first, variety }
+  return {
+    marathon,
+    repeatDay: repeatDay && { item: repeatDay.item, day: dayKeyOf(repeatDay.day), count: repeatDay.count },
+    lateNight: lateNight && { day: dayKeyOf(lateNight.day), ms: lateNight.ms },
+    artistRun,
+    loyal,
+    first,
+    variety: variety && { day: dayKeyOf(variety.day), artists: variety.artists },
+  }
 }
 
 export interface Forgotten {
@@ -123,34 +169,40 @@ const FORGOTTEN_AFTER_MS = 365 * 86_400_000
 export function forgotten(d: Dataset, f: Filter, n = 12): Forgotten[] {
   const { start, ms, item } = d.plays
   if (start.length === 0) return []
+  const cal = calendar(d)
   const cut = start[start.length - 1] - FORGOTTEN_AFTER_MS
   const minPlays = f.year === null ? 20 : 10
-  const last = new Map<number, number>()
-  const plays = new Map<number, number>()
-  const perYear = new Map<number, Map<number, number>>()
+  const music = Uint8Array.from(d.items, (it) => (it.kind === 'music' ? 1 : 0))
+  // Última vez que cada música tocou: as reproduções estão em ordem, fica a mais recente.
+  const last = new Float64Array(d.items.length)
+  for (let i = 0; i < item.length; i++) last[item[i]] = start[i]
 
-  for (let i = 0; i < start.length; i++) {
+  const plays = new Int32Array(d.items.length)
+  const order: number[] = []
+  const [lo, hi] = yearRange(d, f.year)
+  for (let i = lo; i < hi; i++) {
     const it = item[i]
-    if (d.items[it].kind !== 'music') continue
-    last.set(it, start[i])
-    if (ms[i] < MIN_PLAY_MS) continue
-    const y = new Date(start[i]).getFullYear()
-    let py = perYear.get(it)
-    if (!py) perYear.set(it, (py = new Map()))
-    py.set(y, (py.get(y) ?? 0) + 1)
-    if (f.year === null || y === f.year) plays.set(it, (plays.get(it) ?? 0) + 1)
+    if (!music[it] || ms[i] < MIN_PLAY_MS) continue
+    if (plays[it] === 0) order.push(it)
+    plays[it]++
   }
-
-  return [...plays.entries()]
-    .filter(([it, p]) => p >= minPlays && (last.get(it) ?? 0) < cut)
-    .sort((a, b) => b[1] - a[1])
+  const picked = order
+    .filter((it) => plays[it] >= minPlays && last[it] < cut)
+    .sort((a, b) => plays[b] - plays[a])
     .slice(0, n)
-    .map(([id, p]) => {
-      let peakYear = 0
-      let peak = -1
-      for (const [y, v] of perYear.get(id)?.entries() ?? []) if (v > peak) [peakYear, peak] = [y, v]
-      return { id, plays: p, last: last.get(id) ?? 0, peakYear }
-    })
+
+  // O ano em que cada escolhida mais tocou (no empate, o primeiro).
+  const slot = new Int32Array(d.items.length).fill(-1)
+  picked.forEach((it, k) => (slot[it] = k))
+  const peak = picked.map(() => ({ year: 0, plays: -1, curYear: 0, cur: 0 }))
+  for (let i = 0; i < item.length; i++) {
+    const k = slot[item[i]]
+    if (k < 0 || ms[i] < MIN_PLAY_MS) continue
+    const p = peak[k]
+    if (cal.year[i] !== p.curYear) [p.curYear, p.cur] = [cal.year[i], 0]
+    if (++p.cur > p.plays) [p.year, p.plays] = [p.curYear, p.cur]
+  }
+  return picked.map((id, k) => ({ id, plays: plays[id], last: last[id], peakYear: peak[k].year }))
 }
 
 export interface YearProfile {
@@ -177,20 +229,22 @@ export interface YearProfile {
 export function yearProfile(d: Dataset, year: number, kind: KindFilter): YearProfile {
   const s = summarize(d, { year, kind }, 5)
   const { start, ms, item, flags } = d.plays
-  const seen = new Set<number>()
+  const cal = calendar(d)
+  const creator = creatorOf(d)
+  const [lo, hi] = yearRange(d, year)
+  // Quem você já tinha ouvido antes do ano.
+  const seen = new Uint8Array(d.creators.length)
+  for (let i = 0; i < lo; i++) if (ms[i] >= MIN_PLAY_MS && kindMatches(flags[i], kind)) seen[creator[item[i]]] = 1
   let newCreators = 0
   const byHour = new Array<number>(24).fill(0)
-  for (let i = 0; i < start.length; i++) {
+  for (let i = lo; i < hi; i++) {
     if (!kindMatches(flags[i], kind)) continue
-    const dt = new Date(start[i])
-    const y = dt.getFullYear()
-    if (y > year) break
-    if (y === year) byHour[dt.getHours()] += ms[i]
+    byHour[cal.hour[i]] += ms[i]
     if (ms[i] < MIN_PLAY_MS) continue
-    const c = d.items[item[i]].creator
-    if (seen.has(c)) continue
-    seen.add(c)
-    if (y === year) newCreators++
+    const c = creator[item[i]]
+    if (seen[c]) continue
+    seen[c] = 1
+    newCreators++
   }
   const parts = DAY_PARTS.map((p) => ({ name: p.name, ms: byHour.slice(p.from, p.to).reduce((a, b) => a + b, 0) }))
   const part = parts.reduce((a, b) => (b.ms > a.ms ? b : a))
@@ -205,7 +259,7 @@ export function yearProfile(d: Dataset, year: number, kind: KindFilter): YearPro
     top: s.topCreators,
     topItem: s.topItems[0] ?? null,
     newCreators,
-    firstYear: start.length > 0 && new Date(start[0]).getFullYear() === year,
+    firstYear: start.length > 0 && cal.year[0] === year,
     part: part.ms > 0 ? part.name : null,
     partial: !!from && !!to && (from.getMonth() > 0 || to.getMonth() < 11),
     last: s.last,

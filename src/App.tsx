@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react'
 import type { Dataset } from './data/types'
 import { loadFiles } from './data/load'
 import { clearSaved, loadSaved, save } from './data/store'
@@ -25,6 +25,7 @@ import { PageTint } from './ui/PageTint'
 import { hapticOnTaps } from './ui/haptic'
 import { useHeader } from './ui/useHeader'
 import { TabPager } from './ui/TabPager'
+import { preloadCharts } from './ui/loadCharts'
 import { t, useLang } from './i18n'
 import { hasConcerts } from './data/concerts'
 
@@ -74,6 +75,15 @@ function useRoute(): [Route, (p: PageId) => void] {
   return [route, go]
 }
 
+/**
+ * O cabeçalho muda de tamanho ao rolar. Só ele se redesenha nessa hora: o conteúdo (`children`)
+ * vem pronto do App, que não precisa redesenhar a página inteira a cada rolagem.
+ */
+function TopBar({ children }: { children: ReactNode }) {
+  const state = useHeader()
+  return <header className={`top ${state}`}>{children}</header>
+}
+
 /** Abas em que "música, podcasts ou tudo" muda os números. */
 const KIND_PAGES = new Set<string>(['resumo', 'curiosidades', 'linha'])
 
@@ -93,8 +103,10 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>({ year: null, kind: 'music' })
-  const header = useHeader()
   useEffect(() => hapticOnTaps(), [])
+  useEffect(() => {
+    if (data) preloadCharts()
+  }, [data])
 
   // Nas abas (não nas páginas de artista e de música), arrastar para os lados troca de aba.
   const tab = PAGES.findIndex((p) => p.id === page)
@@ -225,7 +237,7 @@ export default function App() {
     <div className="app">
       <Splash ready={!booting} />
       <Fragment key={lng}>
-        <header className={`top ${header}`}>
+        <TopBar>
           <div className="brand">
             <span className="logo">
               <LyraMark />
@@ -261,7 +273,7 @@ export default function App() {
               {theme === 'dark' ? '☀' : '☾'}
             </button>
           </div>
-        </header>
+        </TopBar>
 
         {data && tab >= 0 && (
           <PageTint

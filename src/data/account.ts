@@ -303,7 +303,7 @@ export function playlistDetail(d: Dataset, index: number): PlaylistDetail | null
       .sort((a, b) => b.ms - a.ms)
       .slice(0, 10),
     topArtists: [...artists.values()].sort((a, b) => b.ms - a.ms || b.songs - a.songs).slice(0, 8),
-    never: never.slice(0, 8),
+    never: never.slice(0, 9),
     neverCount: never.length,
   }
 }
@@ -317,8 +317,8 @@ export interface LikedForgotten {
   liked: number
 }
 
-/** Curtidas esquecidas: as que você largou e as que nunca tocou. */
-export function likedForgotten(d: Dataset, n = 8): LikedForgotten | null {
+/** Curtidas esquecidas: as `n` mais ouvidas que você largou e `nNever` das que nunca tocou. */
+export function likedForgotten(d: Dataset, n = 8, nNever = 4): LikedForgotten | null {
   if (!d.account || d.account.liked.length === 0) return null
   const u = usage(d)
   const seen = new Set<string | number>()
@@ -333,5 +333,5 @@ export function likedForgotten(d: Dataset, n = 8): LikedForgotten | null {
     else if (u.last[id] < u.end - YEAR_MS) abandoned.push({ id, plays: u.plays[id], last: u.last[id] })
   }
   abandoned.sort((a, b) => b.plays - a.plays)
-  return { abandoned: abandoned.slice(0, n), never: never.slice(0, n / 2), neverCount: never.length, liked: seen.size }
+  return { abandoned: abandoned.slice(0, n), never: never.slice(0, nNever), neverCount: never.length, liked: seen.size }
 }

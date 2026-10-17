@@ -18,9 +18,11 @@ const open = (h: Hit) => {
 
 /** Busca de artistas e músicas: as sugestões aparecem embaixo do campo enquanto você digita. */
 export function Search({ data, timeline, label, placeholder }: Props) {
-  const index = useMemo(() => searchIndex(data, timeline), [data, timeline])
   const [query, setQuery] = useState('')
   const [focused, setFocused] = useState(false)
+  // O índice só é montado quando alguém vai buscar (ao tocar no campo), não ao abrir a aba.
+  const [armed, setArmed] = useState(false)
+  const index = useMemo(() => (armed ? searchIndex(data, timeline) : []), [armed, data, timeline])
   const [active, setActive] = useState(0)
   const hits = useMemo(() => search(index, query), [index, query])
   const listId = useId()
@@ -54,7 +56,10 @@ export function Search({ data, timeline, label, placeholder }: Props) {
               setQuery(e.target.value)
               setActive(0)
             }}
-            onFocus={() => setFocused(true)}
+            onFocus={() => {
+              setFocused(true)
+              setArmed(true)
+            }}
             onBlur={() => setFocused(false)}
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {

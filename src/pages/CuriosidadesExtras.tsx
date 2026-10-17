@@ -10,6 +10,7 @@ import { trackOf } from '../ui/playerStore'
 import { MicIcon, TimerIcon } from '../ui/icons'
 import { LyraSky } from '../ui/LyraSky'
 import { cleanTitle, clock, date, duration, hours, keyToMs, monthLabel, num, shortDate } from '../ui/format'
+import { PHONE, useMedia } from '../ui/useMedia'
 import { t } from '../i18n'
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -136,7 +137,9 @@ export function Recordes({ data, filter }: { data: Dataset; filter: Filter }) {
 
 /** Músicas muito ouvidas que não tocam há mais de um ano, com a capa desbotada. */
 export function Esquecidas({ data, filter }: { data: Dataset; filter: Filter }) {
-  const list = useMemo(() => forgotten(data, filter, 8), [data, filter])
+  // Linhas cheias: duas de 4 no computador, três de 3 no celular.
+  const n = useMedia(PHONE) ? 9 : 8
+  const list = useMemo(() => forgotten(data, filter, n), [data, filter, n])
   if (list.length === 0)
     return (
       <p className="empty-note">

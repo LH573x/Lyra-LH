@@ -94,6 +94,8 @@ export function parseFiles(files: SourceFile[]): Dataset {
     return id
   }
   const push = (t: number, played: number, it: number, f: number, pl: number) => {
+    // Linha com data quebrada: sem horário não dá para pôr em ordem nem em nenhum dia.
+    if (!Number.isFinite(t)) return
     // O mesmo arquivo enviado duas vezes não deve contar em dobro.
     const key = `${t}|${it}|${played}`
     if (seen.has(key)) return

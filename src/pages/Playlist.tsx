@@ -12,6 +12,7 @@ import { PlaylistCover } from '../ui/PlaylistCover'
 import { PlayButton } from '../ui/player'
 import { isSpotifyUri, trackOf } from '../ui/playerStore'
 import { artistHref, songHref } from '../ui/links'
+import { PHONE, useMedia } from '../ui/useMedia'
 import { t } from '../i18n'
 
 interface Props {
@@ -33,6 +34,8 @@ function back() {
 /** Página de uma playlist: quanto você ouve, quando cada música entrou, as mais tocadas e as esquecidas. */
 export function Playlist({ data, index, theme }: Props) {
   const p = useMemo(() => playlistDetail(data, index), [data, index])
+  // Linhas cheias: duas de 4 no computador, três de 3 no celular.
+  const never = useMedia(PHONE) ? 9 : 8
   const c = chartColors(theme, 'coral')
 
   const option = useMemo<ChartOption | null>(() => {
@@ -202,7 +205,7 @@ export function Playlist({ data, index, theme }: Props) {
           )}
         >
           <ol className="wall faded">
-            {p.never.map((s) => (
+            {p.never.slice(0, never).map((s) => (
               <li key={s.uri ?? `${s.artist}|${s.name}`} title={`${s.name} · ${s.artist}`}>
                 <div className="wall-art">
                   <Art
