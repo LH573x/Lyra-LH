@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Dataset } from '../data/types'
-import { topPeriods, wrapped } from '../data/wrapped'
+import { topPeriodsView, wrappedView } from '../data/views'
 import { deck, periodTitle, topAlt } from '../ui/wrappedDeck'
 import { TopCard, WrappedCard } from '../ui/WrappedCard'
 import { StoryViewer, type Story } from '../ui/StoryViewer'
@@ -21,8 +21,8 @@ export function Wrapped({ data, year }: Props) {
     if (!fontReady) loadDisplayFont().then(() => setFontReady(true))
   }, [fontReady])
 
-  const w = useMemo(() => wrapped(data, year), [data, year])
-  const periods = useMemo(() => topPeriods(data), [data])
+  const w = useMemo(() => wrappedView(data, year), [data, year])
+  const periods = useMemo(() => topPeriodsView(data), [data])
 
   const tops = useMemo<Story[]>(
     () => periods.map((t) => ({ id: `top-${t.id}`, title: periodTitle(t.id), card: <TopCard t={t} label={topAlt(t)} /> })),

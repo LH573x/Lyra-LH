@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { Dataset, SavedTrack } from '../data/types'
-import { likedForgotten, playlistRanking } from '../data/account'
+import { likedCounts, likedForgottenView, playlistRankingView } from '../data/views'
 import { itemRef } from '../data/refs'
 import { Art } from '../ui/Thumb'
 import { PlaylistCover } from '../ui/PlaylistCover'
@@ -15,7 +15,7 @@ const FEW = 6
 
 /** Ranking das suas playlists em capas grandes, 3 por linha. */
 export function Playlists({ data }: { data: Dataset }) {
-  const list = useMemo(() => playlistRanking(data), [data])
+  const list = useMemo(() => playlistRankingView(data), [data])
   const [all, setAll] = useState(false)
   const lists = data.account?.playlists
   if (!lists || list.length === 0) return null
@@ -59,7 +59,7 @@ const savedTrack = (s: SavedTrack) => (isSpotifyUri(s.uri) ? { uri: s.uri, name:
 /** Curtidas que você largou (e as que nunca tocou): linhas cheias, de 4 no computador e de 3 no celular. */
 export function Curtidas({ data }: { data: Dataset }) {
   const phone = useMedia(PHONE)
-  const f = useMemo(() => (phone ? likedForgotten(data, 9, 3) : likedForgotten(data, 8, 4)), [data, phone])
+  const f = useMemo(() => likedForgottenView(data, ...likedCounts(phone)), [data, phone])
   if (!f || (f.abandoned.length === 0 && f.neverCount === 0)) return null
   return (
     <>

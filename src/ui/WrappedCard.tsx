@@ -1,7 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react'
 import type { TopPeriod, WrappedYear } from '../data/wrapped'
 import { useImagesData, type ImageRef } from '../data/images'
-import { CARD_FONT, DISPLAY_FONT, fitText } from './svgText'
+import { CARD_FONT, DISPLAY_FONT, fitText, measure } from './svgText'
 import { LyraShape } from './LyraMark'
 import { capitalize, enHour, minutes, monthKeyOf, partTitle, peakMonth, periodRange, periodTitle, type CardInfo } from './wrappedDeck'
 import { t as tr } from '../i18n'
@@ -1344,6 +1344,171 @@ export function DayCard({ date, rows, heads, label }: { date: string; rows: DayR
             {textBlock(r.song, y + (pic - nameSize) / 2, { size: nameSize, condensed: true, fill: p.ink, x: x1 + tx, width: songW - tx }).el}
             <Pic id={`dia-a-${i}`} href={artists[i]} name={r.artist} x={x2} y={y} size={pic} round={r.round} />
             {textBlock(r.artist, y + (pic - nameSize) / 2, { size: nameSize, condensed: true, fill: p.ink2, x: x2 + tx, width: artistW - tx }).el}
+          </g>
+        )
+      })}
+    </Frame>
+  )
+}
+
+/* ---------- Top 10 da Linha do tempo ---------- */
+
+/** Posições que subiu (+) ou caiu (−) desde o período anterior; 'new', se entrou agora; null, sem comparação. */
+export type TopMove = number | 'new' | null
+
+export interface TopTenRow {
+  name: string
+  /** Artista (músicas e álbuns) ou horas (artistas). */
+  sub: string
+  /** Linha a mais do nº 1. */
+  more: string
+  image: ImageRef | null
+  move: TopMove
+}
+
+const TOP_TEN_PAL = { songs: PAL.orange, artists: PAL.cream, albums: PAL.lime }
+
+/** A seta e quantas posições (ou "nova"), alinhada à direita em `x`, com a linha de base em `y`. */
+function MoveTag({ move, x, y, size, p, fresh }: { move: TopMove; x: number; y: number; size: number; p: Palette; fresh: string }) {
+  if (move === null || move === 0) return null
+  if (move === 'new')
+    return (
+      <text x={x} y={y} fontSize={size * 0.78} fontWeight={800} fill={p.accent} textAnchor="end" fontFamily={DISPLAY_FONT} letterSpacing={size * 0.06}>
+        {fresh.toLocaleUpperCase('pt-BR')}
+      </text>
+    )
+  const n = String(Math.abs(move))
+  const up = move > 0
+  const s = size * 0.46
+  const right = x - measure(n, size, 800, DISPLAY_FONT) - size * 0.16
+  const cy = y - size * 0.36
+  const h = s * 0.86
+  return (
+    <g fill={up ? p.ink : p.muted}>
+      <path d={up ? `M${right - s / 2} ${cy - h / 2}L${right} ${cy + h / 2}H${right - s}Z` : `M${right - s / 2} ${cy + h / 2}L${right - s} ${cy - h / 2}H${right}Z`} />
+      <text x={x} y={y} fontSize={size} fontWeight={800} textAnchor="end" fontFamily={DISPLAY_FONT}>
+        {n}
+      </text>
+    </g>
+  )
+}
+
+/**
+ * "Meu top 10 de 2025": o nº 1 em destaque (capa com o disco saindo, ou a foto do artista) e
+ * o 2º ao 10º numa lista, cada um com a seta de quanto subiu ou caiu.
+ */
+export function TopTenCard({
+  rows,
+  by,
+  podcast,
+  kicker,
+  title,
+  line,
+  right,
+  fresh,
+  label,
+}: {
+  rows: TopTenRow[]
+  by: keyof typeof TOP_TEN_PAL
+  podcast: boolean
+  kicker: string
+  title: string
+  line: string
+  right: string
+  /** "nova" ou "novo", para quem entrou no top agora. */
+  fresh: string
+  label: string
+}) {
+  const p = TOP_TEN_PAL[by]
+  const uid = 'top10'
+  const [big] = useImagesData(rows.slice(0, 1).map((r) => r.image), true)
+  const images = useImagesData(rows.map((r) => r.image))
+  const round = by === 'artists' && !podcast
+  // Capa com o disco saindo para músicas e álbuns; foto (ou imagem do podcast) com o selo de nº 1 para o resto.
+  const disc = by !== 'artists' && !podcast
+  const moves = rows.some((r) => r.move !== null)
+  const [lead, ...rest] = rows
+
+  const s = makeStack(TOP)
+    .text(kicker, { size: 56, min: 40, display: true, fill: p.accent })
+    .gap(14)
+    .text(title, { size: 170, min: 110, display: true, fill: p.ink })
+    .gap(22)
+    .text(line, { size: 40, min: 30, weight: 600, fill: p.ink2 })
+
+  // O nº 1: a imagem à esquerda e o texto centralizado na altura dela.
+  const top = s.y + 60
+  const size = 280
+  const r = Math.round(size * 0.45)
+  const textX = disc ? M + size + 125 : M + size + 48
+  // A seta do nº 1 fica na coluna das outras, à direita, na altura do meio da imagem.
+  const tagSize = 40
+  const leadTag = lead.move !== null && lead.move !== 0
+  const width = W - M - textX - (leadTag ? 110 : 0)
+  const lt = makeStack(0)
+  // Com o selo de estrela, o "nº 1" já está na imagem.
+  if (disc) lt.text(tr('nº 1', '#1', 'n.º 1'), { size: 46, display: true, fill: p.accent, x: textX, width }).gap(12)
+  lt.text(lead.name, { size: 80, min: 46, display: true, fill: p.ink, lines: 2, x: textX, width })
+    .gap(16)
+    .text(lead.sub, { size: 40, min: 32, weight: 700, fill: p.ink2, x: textX, width })
+    .gap(6)
+    .text(lead.more, { size: 36, min: 28, fill: p.muted, x: textX, width })
+  const leadH = Math.max(size, lt.y)
+
+  // Do 2º ao 10º, logo abaixo do nº 1, no espaço que sobra até a marca do rodapé.
+  const listTop = top + leadH + 64
+  const n = rest.length
+  const step = n ? Math.min(124, Math.floor((H - 220 - listTop) / n)) : 0
+  const pic = Math.round(step * 0.76)
+  const numW = Math.round(step * 0.9)
+  const x = M + numW + pic + 26
+  const nameW = W - M - (moves ? 110 : 0) - x
+  const nameSize = commonSize(
+    rest.map((row) => row.name),
+    nameW,
+    { size: Math.min(54, Math.round(step * 0.5)), min: 30, weight: 700, condensed: true },
+  )
+  const subSize = Math.min(36, Math.round(step * 0.34))
+  const numSize = Math.min(76, Math.round(step * 0.6))
+  const rowTag = Math.min(tagSize, Math.round(step * 0.4))
+
+  return (
+    <Frame uid={uid} p={p} label={label} right={right}>
+      {s.els}
+      <g>
+        <g className="wa" style={{ animationDelay: '200ms' }}>
+          {disc ? (
+            <>
+              <Disc cx={M + size - r + 110} cy={top + size / 2} r={r} label={p.pop} hole={p.bg} spin />
+              <g transform={`rotate(-4 ${M + size / 2} ${top + size / 2})`}>
+                <Pic id={`${uid}-lead`} href={big ?? images[0]} name={lead.name} x={M} y={top} size={size} round={false} shadow />
+              </g>
+            </>
+          ) : (
+            <>
+              <Pic id={`${uid}-lead`} href={big ?? images[0]} name={lead.name} x={M} y={top} size={size} round={round} shadow />
+              <Burst cx={M + 34} cy={top + 34} r={54} fill={p.accent} ink={p.bg} text="1" />
+            </>
+          )}
+        </g>
+        <g transform={`translate(0 ${top + Math.max(0, (size - lt.y) / 2)})`}>{lt.els}</g>
+        <g className="wa" style={{ animationDelay: '260ms' }}>
+          <MoveTag move={lead.move} x={W - M} y={top + size / 2 + tagSize * 0.36} size={tagSize} p={p} fresh={fresh} />
+        </g>
+      </g>
+      {rest.map((row, i) => {
+        const y = listTop + i * step
+        const ny = y + (pic - (nameSize + 6 + subSize)) / 2
+        const mid = y + pic / 2
+        return (
+          <g key={i} className="wa" style={{ animationDelay: `${320 + i * 60}ms` }}>
+            <text x={M + (numW - 22) / 2} y={mid + numSize * 0.36} fontSize={numSize} fontWeight={800} fill={p.accent} textAnchor="middle" fontFamily={DISPLAY_FONT}>
+              {i + 2}
+            </text>
+            <Pic id={`${uid}-${i}`} href={images[i + 1]} name={row.name} x={M + numW} y={y} size={pic} round={round} />
+            {textBlock(row.name, ny, { size: nameSize, condensed: true, fill: p.ink, x, width: nameW }).el}
+            {textBlock(row.sub, ny + nameSize + 6, { size: subSize, min: 24, fill: p.muted, x, width: nameW }).el}
+            <MoveTag move={row.move} x={W - M} y={mid + rowTag * 0.36} size={rowTag} p={p} fresh={fresh} />
           </g>
         )
       })}

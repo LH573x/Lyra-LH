@@ -1,5 +1,7 @@
-import { useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { flushSync } from 'react-dom'
 import { canShareImages, download, shareImage, svgToPng, zipFiles } from './exportImage'
+import { imagesSettled } from '../data/images'
 import { ShareIcon } from './icons'
 import { t } from '../i18n'
 
@@ -28,6 +30,17 @@ export function StoryViewer({ stories, fileName, zipName, shareTitle, label }: P
   const [canShare] = useState(canShareImages)
   const stage = useRef<HTMLDivElement>(null)
   const pointer = useRef<{ x: number; y: number } | null>(null)
+  // Os cartões entram aos poucos: o da tela na hora, os outros quando o navegador está folgado.
+  const [mounted, setMounted] = useState(1)
+  useEffect(() => {
+    if (mounted >= stories.length) return
+    if (typeof requestIdleCallback === 'undefined') {
+      const timer = setTimeout(() => setMounted((n) => n + 1), 60)
+      return () => clearTimeout(timer)
+    }
+    const id = requestIdleCallback(() => setMounted((n) => n + 1), { timeout: 1500 })
+    return () => cancelIdleCallback(id)
+  }, [mounted, stories.length])
 
   if (stories.length === 0) return null
   const at = Math.min(index, stories.length - 1)
@@ -64,7 +77,8 @@ export function StoryViewer({ stories, fileName, zipName, shareTitle, label }: P
   }
 
   const pngAt = async (i: number) => {
-    const svg = stage.current?.querySelectorAll<SVGSVGElement>('.wcard > svg')[i]
+    // Pelo lugar do cartão: os que ainda não montaram não têm svg.
+    const svg = stage.current?.querySelectorAll('.wcard')[i]?.querySelector<SVGSVGElement>(':scope > svg')
     if (!svg) throw new Error(t('Não encontrei o cartão.', "Couldn't find the card.", 'No he encontrado la tarjeta.'))
     return svgToPng(svg)
   }
@@ -129,7 +143,7 @@ export function StoryViewer({ stories, fileName, zipName, shareTitle, label }: P
       >
         {stories.map((s, i) => (
           <div key={s.id} className={`wcard ${dir}`} hidden={i !== at}>
-            {s.card}
+            {(i < mounted || i === at) && s.card}
           </div>
         ))}
       </div>
@@ -172,6 +186,9 @@ export function StoryViewer({ stories, fileName, zipName, shareTitle, label }: P
             disabled={busy !== null}
             onClick={() =>
               run(zipping, async () => {
+                // Todos os cartões na página, com as fotos e capas, antes de virar imagem.
+                flushSync(() => setMounted(stories.length))
+                await imagesSettled()
                 const files = []
                 for (let i = 0; i < stories.length; i++) files.push({ name: file(i), blob: await pngAt(i) })
                 download(await zipFiles(files), zipName)

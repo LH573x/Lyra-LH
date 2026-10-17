@@ -1,22 +1,20 @@
 import type { Dataset } from './types'
 import type { ImageRef } from './images'
+import { memo } from './memo'
 
-/** Para cada artista, o álbum da música que você mais ouviu dele (capa reserva quando não há foto). */
-const topAlbum = new WeakMap<Dataset, Map<number, number>>()
+/** Para cada artista, a música que você mais ouviu dele (a capa dela é a reserva quando não há foto). */
+export const bestItems = (d: Dataset): Map<number, number> => memo(d, 'bestItems', () => findBestItems(d))
 
-function bestItems(d: Dataset): Map<number, number> {
-  let m = topAlbum.get(d)
-  if (m) return m
+function findBestItems(d: Dataset): Map<number, number> {
   const msByItem = new Float64Array(d.items.length)
   const { ms, item } = d.plays
   for (let i = 0; i < item.length; i++) msByItem[item[i]] += ms[i]
-  m = new Map()
+  const m = new Map<number, number>()
   for (let it = 0; it < d.items.length; it++) {
     const c = d.items[it].creator
     const cur = m.get(c)
     if (cur === undefined || msByItem[it] > msByItem[cur]) m.set(c, it)
   }
-  topAlbum.set(d, m)
   return m
 }
 
