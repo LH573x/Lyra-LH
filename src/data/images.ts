@@ -1,9 +1,11 @@
 import { useEffect, useSyncExternalStore } from 'react'
+import { searchAlbums } from './deezer'
 
 /*
  * Fotos de artistas e podcasts vêm do Wikidata (imagem do Wikimedia Commons) e capas de
- * álbuns vêm do MusicBrainz (Cover Art Archive). Nenhum dos dois pede login.
- * Só os nomes que aparecem na tela são buscados, e o resultado fica guardado neste navegador.
+ * álbuns vêm do Deezer (ou, quando ele não acha, do MusicBrainz, com o Cover Art Archive).
+ * Nenhum deles pede login. Só os nomes que aparecem na tela são buscados, e o resultado
+ * fica guardado neste navegador.
  */
 
 export type ImageRef =
@@ -19,6 +21,8 @@ export interface AlbumRef {
 interface Entry {
   url: string | null
   at: number
+  /** 2: capa buscada também no Deezer. As que só o MusicBrainz procurou e não achou são buscadas de novo. */
+  v?: number
 }
 
 const CACHE_KEY = 'spotify-stats-images-v1'
@@ -39,9 +43,30 @@ const listeners = new Set<() => void>()
 const inflight = new Map<string, Promise<string | null>>()
 /** Buscas que falharam por rede nesta visita: param de mostrar "carregando". */
 const failed = new Set<string>()
+/** Buscas e downloads de imagem em andamento. */
+let working = 0
+
+function tracked<T>(p: Promise<T>): Promise<T> {
+  working++
+  const done = () => void working--
+  p.then(done, done)
+  return p
+}
+
+/**
+ * Espera as imagens que estão chegando, até `maxMs`: um cartão que acabou de montar ainda busca as
+ * dele. Calmo duas vezes seguidas, porque uma imagem que chega faz o cartão pedir a versão em data URL.
+ */
+export async function imagesSettled(maxMs = 6000) {
+  const end = Date.now() + maxMs
+  for (let calm = 0; calm < 2 && Date.now() < end; ) {
+    await new Promise((r) => setTimeout(r, 60))
+    calm = working === 0 ? calm + 1 : 0
+  }
+}
 
 function store(key: string, url: string | null) {
-  cache[key] = { url, at: Date.now() }
+  cache[key] = { url, at: Date.now(), v: 2 }
   clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
     try {
@@ -112,7 +137,8 @@ function limiter(concurrency: number, gapMs: number) {
 }
 
 const wiki = limiter(4, 0)
-// O MusicBrainz pede no máximo um pedido por segundo.
+// O Deezer aceita vários pedidos por segundo (o ritmo fica com o deezer.ts); o MusicBrainz, um só.
+const deezer = limiter(3, 0)
 const musicbrainz = limiter(1, 1100)
 
 async function getJson<T>(url: string): Promise<T> {
@@ -121,7 +147,10 @@ async function getJson<T>(url: string): Promise<T> {
   return (await r.json()) as T
 }
 
-/** Compara nomes sem acento, caixa, "The" no começo e pontuação. */
+/**
+ * Compara nomes sem acento, caixa, "The" no começo e pontuação, em qualquer alfabeto
+ * (葉惠美 e 范特西 são nomes diferentes). Um nome que fica vazio não bate com nada.
+ */
 export function sameName(a: string, b: string) {
   const norm = (s: string) =>
     s
@@ -130,8 +159,9 @@ export function sameName(a: string, b: string) {
       .toLowerCase()
       .replace(/&/g, 'and')
       .replace(/^the\s+/, '')
-      .replace(/[^a-z0-9]+/g, '')
-  return norm(a) === norm(b)
+      .replace(/[^\p{L}\p{N}\p{M}]+/gu, '')
+  const x = norm(a)
+  return x !== '' && x === norm(b)
 }
 
 const WIKIDATA = 'https://www.wikidata.org/w/api.php?format=json&origin=*&'
@@ -208,8 +238,17 @@ function cleanAlbum(album: string) {
 
 const lucene = (s: string) => s.replace(/[\\"]/g, '\\$&')
 
-/** Álbum: procura o "release group" no MusicBrainz e usa a capa do Cover Art Archive. */
-async function findCover(artist: string, album: string, level: Level): Promise<string | null> {
+/** Álbum no Deezer: do mesmo artista e com o mesmo nome (ou o mesmo sem "Deluxe", "Remastered"…). */
+async function deezerCover(artist: string, album: string, level: Level): Promise<string | null> {
+  const title = cleanAlbum(album)
+  const found = await deezer(() => searchAlbums(`${artist} ${title}`), level)
+  const mine = found.filter((a) => sameName(a.artist, artist))
+  const hit = mine.find((a) => sameName(a.title, album)) ?? mine.find((a) => sameName(cleanAlbum(a.title), title))
+  return hit?.cover ?? null
+}
+
+/** Álbum no MusicBrainz: procura o "release group" e usa a capa do Cover Art Archive. */
+async function musicbrainzCover(artist: string, album: string, level: Level): Promise<string | null> {
   const title = cleanAlbum(album)
   const query = `releasegroup:"${lucene(title)}" AND artist:"${lucene(artist)}"`
   const r = await musicbrainz(
@@ -226,14 +265,32 @@ async function findCover(artist: string, album: string, level: Level): Promise<s
   return g ? `https://coverartarchive.org/release-group/${g.id}/front-250` : null
 }
 
+/** Capa de álbum: o Deezer responde rápido; o MusicBrainz (um pedido por segundo) fica para o que ele não achar. */
+async function findCover(artist: string, album: string, level: Level): Promise<string | null> {
+  let failure: unknown = null
+  try {
+    const url = await deezerCover(artist, album, level)
+    if (url) return url
+  } catch (e) {
+    if (e === SKIPPED) throw e
+    failure = e
+  }
+  const url = await musicbrainzCover(artist, album, level)
+  // Sem resposta do Deezer, "não achei" não fica guardado: tenta de novo da próxima vez.
+  if (!url && failure) throw failure
+  return url
+}
+
 function keyOf(ref: ImageRef) {
   return ref.kind === 'album' ? `album:${ref.artist}\u0000${ref.album}` : `${ref.kind}:${ref.name}`
 }
 
 function cached(key: string): Entry | undefined {
   const e = cache[key]
-  if (e && (e.url || Date.now() - e.at < RETRY_MS)) return e
-  return undefined
+  if (!e) return undefined
+  if (e.url) return e
+  if (key.startsWith('album:') && !e.v) return undefined
+  return Date.now() - e.at < RETRY_MS ? e : undefined
 }
 
 /** Quantas partes montadas da página querem cada imagem, e quantas delas estão na tela. */
@@ -259,21 +316,23 @@ function lookup(ref: ImageRef): Promise<string | null> {
     failed.delete(key)
     const level = () => levelOf(key)
     const job = ref.kind === 'album' ? findCover(ref.artist, ref.album, level) : findPhoto(ref.name, ref.kind === 'podcast', level)
-    p = job.then(
-      (url) => {
-        store(key, url)
-        inflight.delete(key)
-        return url
-      },
-      (err: unknown) => {
-        inflight.delete(key)
-        // Saiu da fila porque sumiu da página: nada fica guardado. Se voltou a aparecer nesse meio-tempo, busca de novo.
-        if (err === SKIPPED) return levelOf(key) > 0 ? lookup(ref) : null
-        // Falha de rede não fica guardada: tenta de novo na próxima vez que a imagem aparecer.
-        failed.add(key)
-        for (const l of listeners) l()
-        return null
-      },
+    p = tracked(
+      job.then(
+        (url) => {
+          store(key, url)
+          inflight.delete(key)
+          return url
+        },
+        (err: unknown) => {
+          inflight.delete(key)
+          // Saiu da fila porque sumiu da página: nada fica guardado. Se voltou a aparecer nesse meio-tempo, busca de novo.
+          if (err === SKIPPED) return levelOf(key) > 0 ? lookup(ref) : null
+          // Falha de rede não fica guardada: tenta de novo na próxima vez que a imagem aparecer.
+          failed.add(key)
+          for (const l of listeners) l()
+          return null
+        },
+      ),
     )
     inflight.set(key, p)
   }
@@ -382,11 +441,11 @@ export function useImageState(ref: ImageRef | null | undefined, visible = true):
 const dataUrls = new Map<string, Promise<string | null>>()
 const dataCache = new Map<string, string>()
 
-function ensureData(url: string, fallback?: string) {
-  if (dataUrls.has(url)) return
-  dataUrls.set(
-    url,
-    fetch(url)
+/** Baixa a imagem como data URL (ou a reserva, se não der). */
+function ensureData(url: string, fallback?: string): Promise<string | null> {
+  let p = dataUrls.get(url)
+  if (!p) {
+    p = fetch(url)
       .then((r) => (r.ok ? r.blob() : null))
       .then(
         (b) =>
@@ -400,14 +459,17 @@ function ensureData(url: string, fallback?: string) {
       )
       .catch(() => null)
       .then((d) => {
-        if (d) {
-          dataCache.set(url, d)
-          for (const l of listeners) l()
-        } else if (fallback) ensureData(fallback)
+        if (!d) return fallback ? ensureData(fallback) : null
+        dataCache.set(url, d)
+        for (const l of listeners) l()
         return d
-      }),
-  )
+      })
+    dataUrls.set(url, tracked(p))
+  }
+  return p
 }
+
+const isDeezer = (url: string) => /^https:\/\/[^/]+\.dzcdn\.net\//.test(url)
 
 /**
  * A mesma imagem em tamanho maior, para os stories (a tela de 1080 px de largura).
@@ -416,7 +478,45 @@ function ensureData(url: string, fallback?: string) {
 function largeUrl(url: string) {
   if (/^https:\/\/upload\.wikimedia\.org\/.+\/thumb\//.test(url)) return url.replace(/\/\d+px-([^/]+)$/, '/960px-$1')
   if (url.startsWith('https://coverartarchive.org/')) return url.replace(/\/front-250$/, '/front-500')
+  if (isDeezer(url)) return url.replace(/\/250x250-/, '/1000x1000-')
   return url
+}
+
+/** Capas do Deezer que não deu para baixar: a do MusicBrainz entra no lugar, só nos cartões. */
+const stand = new Map<string, string>()
+const standTried = new Set<string>()
+
+/** O álbum de uma capa já guardada. */
+function albumOf(url: string): AlbumRef | null {
+  for (const k in cache) {
+    if (cache[k].url !== url || !k.startsWith('album:')) continue
+    const [artist, album] = k.slice(6).split('\u0000')
+    return { kind: 'album', artist, album }
+  }
+  return null
+}
+
+function standIn(url: string) {
+  if (standTried.has(url)) return
+  standTried.add(url)
+  const ref = albumOf(url)
+  if (!ref) return
+  const key = `mb:${keyOf(ref)}`
+  const hit = cached(key)
+  const found = hit
+    ? Promise.resolve(hit.url)
+    : musicbrainzCover(ref.artist, ref.album, () => 2).then((u) => {
+        store(key, u)
+        return u
+      })
+  tracked(found).then(
+    (u) => {
+      if (!u) return
+      stand.set(url, u)
+      for (const l of listeners) l()
+    },
+    () => standTried.delete(url),
+  )
 }
 
 /**
@@ -425,7 +525,7 @@ function largeUrl(url: string) {
  */
 export function useImagesData(list: (ImageRef | null | undefined)[], large = false): (string | null)[] {
   const urls = useImages(list)
-  const joined = urls.map((u) => u ?? '').join(SEP)
+  const joined = useSyncExternalStore(subscribe, () => urls.map((u) => (u && stand.get(u)) || u || '').join(SEP))
   const dataOf = (u: string) => (u && ((large && dataCache.get(largeUrl(u))) || dataCache.get(u))) || null
   // Só um "chegou ou não" por imagem: o cartão redesenha quando uma chega, sem comparar data URLs enormes.
   useSyncExternalStore(subscribe, () =>
@@ -438,7 +538,9 @@ export function useImagesData(list: (ImageRef | null | undefined)[], large = fal
     for (const u of joined.split(SEP)) {
       if (!u) continue
       const big = large ? largeUrl(u) : u
-      ensureData(big, big === u ? undefined : u)
+      ensureData(big, big === u ? undefined : u).then((d) => {
+        if (!d && isDeezer(u)) standIn(u)
+      })
     }
   }, [joined, large])
   return joined.split(SEP).map(dataOf)

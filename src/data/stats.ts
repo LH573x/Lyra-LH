@@ -202,3 +202,15 @@ function best(d: Dataset, t: Tally): string | null {
   for (const k of t.ids) if (t.ms[k] > v) [id, v] = [k, t.ms[k]]
   return id < 0 ? null : d.creators[id]
 }
+
+/** Quem você mais ouviu no período (artista ou podcast), ou null se não tem nada. */
+export function topCreator(d: Dataset, year: number | null, kind: KindFilter): number | null {
+  const { ms, item, flags } = d.plays
+  const creator = creatorOf(d)
+  const total = new Float64Array(d.creators.length)
+  const [lo, hi] = yearRange(d, year)
+  for (let i = lo; i < hi; i++) if (kindMatches(flags[i], kind)) total[creator[item[i]]] += ms[i]
+  let best = -1
+  for (let c = 0; c < total.length; c++) if (total[c] > 0 && (best < 0 || total[c] > total[best])) best = c
+  return best < 0 ? null : best
+}

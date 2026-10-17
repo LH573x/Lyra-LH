@@ -11,6 +11,10 @@ function nfFor(digits: 0 | 1) {
 
 export const num = (n: number) => nfFor(0).format(Math.round(n))
 
+/** "1 reprodução", "1.234 reproduções". */
+export const playCount = (n: number) =>
+  t(`${num(n)} ${n === 1 ? 'reprodução' : 'reproduções'}`, `${num(n)} ${n === 1 ? 'play' : 'plays'}`, `${num(n)} ${n === 1 ? 'reproducción' : 'reproducciones'}`)
+
 export function hours(ms: number): string {
   const h = ms / 3.6e6
   if (h < 1) return `${Math.round(ms / 60000)} min`
@@ -54,9 +58,16 @@ export function monthLabel(key: string, withYear = true): string {
   return withYear ? `${name} ${y}` : name
 }
 
-export function date(ms: number): string {
-  return new Date(ms).toLocaleDateString(locale(), { day: 'numeric', month: 'short', year: 'numeric' })
+// Formatadores de data por idioma, também criados uma vez só (criar um a cada data pesa).
+const dateFormats = new Map<string, Intl.DateTimeFormat>()
+function dfFor(name: string, opts: Intl.DateTimeFormatOptions) {
+  const k = locale() + name
+  let f = dateFormats.get(k)
+  if (!f) dateFormats.set(k, (f = new Intl.DateTimeFormat(locale(), opts)))
+  return f
 }
+
+export const date = (ms: number) => dfFor('date', { day: 'numeric', month: 'short', year: 'numeric' }).format(ms)
 
 /** 0.623 → "62%" */
 export const pct = (share: number) => (share > 0 && share < 0.005 ? '<1%' : `${Math.round(share * 100)}%`)
@@ -137,7 +148,7 @@ export function duration(ms: number): string {
 }
 
 /** Hora do dia: "21:02". */
-export const clock = (ms: number) => new Date(ms).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', hour12: false })
+export const clock = (ms: number) => dfFor('clock', { hour: '2-digit', minute: '2-digit', hour12: false }).format(ms)
 
 /** Um tom fixo por nome, para a inicial não ficar sempre no mesmo cinza. */
 export function hue(s: string) {

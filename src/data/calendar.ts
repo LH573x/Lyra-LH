@@ -63,6 +63,11 @@ export function calendar(d: Dataset): Calendar {
   return c
 }
 
+/** O calendário que o worker já calculou (os arrays chegam transferidos, sem cópia). */
+export function adoptCalendar(d: Dataset, c: Calendar) {
+  if (!cache.has(d)) cache.set(d, c)
+}
+
 const pad = (n: number) => String(n).padStart(2, '0')
 
 /** Dia do calendário → "2024-03-07". */

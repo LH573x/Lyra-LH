@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo } from 'react'
 import type { Dataset } from '../data/types'
 import type { DayMemory } from '../data/onThisDay'
 import { artistRef, itemRef } from '../data/refs'
 import { DayCard, type DayRow } from './WrappedCard'
 import { StoryViewer } from './StoryViewer'
-import { displayFontLoaded, loadDisplayFont } from './svgText'
-import { CloseIcon, ShareIcon } from './icons'
+import { StorySheet } from './StorySheet'
 import { cleanTitle, slug } from './format'
 import { t } from '../i18n'
 
@@ -13,12 +12,6 @@ import { t } from '../i18n'
 const MAX_ROWS = 10
 
 function Story({ data, list, date }: { data: Dataset; list: DayMemory[]; date: string }) {
-  // Os textos do cartão são medidos na fonte dos títulos: espera ela carregar.
-  const [fontReady, setFontReady] = useState(displayFontLoaded)
-  useEffect(() => {
-    if (!fontReady) loadDisplayFont().then(() => setFontReady(true))
-  }, [fontReady])
-
   const stories = useMemo(() => {
     const rows: DayRow[] = list.slice(0, MAX_ROWS).map((m) => {
       const photo = artistRef(data, m.creator)
@@ -40,42 +33,15 @@ function Story({ data, list, date }: { data: Dataset; list: DayMemory[]; date: s
     return [{ id: 'dia', title, card: <DayCard date={date} rows={rows} heads={heads} label={label} /> }]
   }, [data, list, date])
 
-  if (!fontReady) return <p className="empty">{t('Preparando o story…', 'Preparing story…', 'Preparando la historia…')}</p>
   const mine = t(`Meu ${date}`, `My ${date}`, `Mi ${date}`)
   return <StoryViewer stories={stories} label={mine} fileName={() => `lyra-${slug(date)}`} zipName="" shareTitle={mine} />
 }
 
 /** Botão pequeno que abre o story de "Seu 4 de outubro", pronto para compartilhar. */
 export function DayStory({ data, list, date }: { data: Dataset; list: DayMemory[]; date: string }) {
-  const dialog = useRef<HTMLDialogElement>(null)
-  // O cartão só monta com a janela aberta: as imagens dele só carregam se for usar.
-  const [open, setOpen] = useState(false)
-  const close = () => dialog.current?.close()
   return (
-    <>
-      <button
-        className="ghost share-btn"
-        onClick={() => {
-          setOpen(true)
-          dialog.current?.showModal()
-        }}
-      >
-        <ShareIcon />
-        {t('Compartilhar', 'Share', 'Compartir')}
-      </button>
-      <dialog
-        ref={dialog}
-        className="story-sheet"
-        aria-label={t(`Story: seu ${date}`, `Story: your ${date}`, `Historia: tu ${date}`)}
-        onClose={() => setOpen(false)}
-        // Tocar fora da janela fecha, como no celular.
-        onClick={(e) => e.target === e.currentTarget && close()}
-      >
-        <button className="ghost icon sheet-close" onClick={close} aria-label={t('Fechar', 'Close', 'Cerrar')} title={t('Fechar', 'Close', 'Cerrar')}>
-          <CloseIcon />
-        </button>
-        {open && <Story data={data} list={list} date={date} />}
-      </dialog>
-    </>
+    <StorySheet label={t(`Story: seu ${date}`, `Story: your ${date}`, `Historia: tu ${date}`)}>
+      <Story data={data} list={list} date={date} />
+    </StorySheet>
   )
 }

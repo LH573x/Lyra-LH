@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import type { Dataset } from '../data/types'
 import type { Filter } from '../data/stats'
-import { dayParts, habits } from '../data/habits'
+import { dayParts } from '../data/habits'
+import { habitsView, onThisDayView } from '../data/views'
 import { Chart, type ChartOption } from '../ui/Chart'
 import { chartColors, type ThemeName } from '../ui/theme'
 import { dayMonth, dayTitle, hours, keyToMs, monthLabel, num, pct, platformLabel, shortDate, weekdayName } from '../ui/format'
@@ -13,7 +14,6 @@ import { Curtidas, Playlists } from './Colecao'
 import { itemRef } from '../data/refs'
 import { songHref } from '../ui/links'
 import { trackOf } from '../ui/playerStore'
-import { onThisDay } from '../data/onThisDay'
 import { Memories } from '../ui/Memories'
 import { DayStory } from '../ui/DayStory'
 import { useMedia } from '../ui/useMedia'
@@ -44,11 +44,11 @@ function dayLabel(key: string, withWeekday = true): string {
 }
 
 export function Curiosidades({ data, filter, theme, lastYear }: Props) {
-  const h = useMemo(() => habits(data, filter, lastYear), [data, filter, lastYear])
+  const h = useMemo(() => habitsView(data, filter, lastYear), [data, filter, lastYear])
   // "Seu 4 de outubro" só com todos os anos (com um ano escolhido, não faz sentido).
   // A data é a de quando a página abriu.
   const [now] = useState(() => new Date())
-  const memories = useMemo(() => (filter.year === null ? onThisDay(data, filter.kind, now) : []), [data, filter, now])
+  const memories = useMemo(() => (filter.year === null ? onThisDayView(data, filter.kind, now) : []), [data, filter, now])
   const today = dayTitle(now)
   const yearList = useMemo(() => years(data), [data])
   const c = chartColors(theme, 'coral')

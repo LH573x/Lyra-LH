@@ -4,12 +4,27 @@ export const CARD_FONT = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-ser
 export const DISPLAY_FONT = "'Barlow Condensed', 'Arial Narrow', sans-serif"
 
 let ctx: CanvasRenderingContext2D | null = null
+let font = ''
+let fontLoad: Promise<void> | null = null
+let fontLoaded = false
+/** Medidas já feitas: os cartões medem os mesmos nomes em vários tamanhos, e de novo a cada desenho. */
+const widths = new Map<string, number>()
 
 export function measure(text: string, size: number, weight: number, family = CARD_FONT): number {
   ctx ??= document.createElement('canvas').getContext('2d')
   if (!ctx) return text.length * size * (family === CARD_FONT ? 0.55 : 0.42)
-  ctx.font = `${weight} ${size}px ${family}`
-  return ctx.measureText(text).width
+  const f = `${weight} ${size}px ${family}`
+  const key = `${f}|${text}`
+  const known = widths.get(key)
+  if (known !== undefined) return known
+  if (f !== font) ctx.font = font = f
+  const w = ctx.measureText(text).width
+  // Antes da fonte dos títulos chegar, a medida sai na fonte reserva: essa não fica guardada.
+  if (fontLoaded || family === CARD_FONT) {
+    if (widths.size > 20_000) widths.clear()
+    widths.set(key, w)
+  }
+  return w
 }
 
 /** Corta o fim com reticências até caber na largura. */
@@ -63,8 +78,6 @@ export function fitText(
   return { size: opts.min, lines: wrap(text, width, opts.min, opts.weight, opts.maxLines, family).lines }
 }
 
-let fontLoad: Promise<void> | null = null
-let fontLoaded = false
 /** Espera a fonte dos títulos carregar, para as medidas acima saírem certas. */
 export function loadDisplayFont(): Promise<void> {
   fontLoad ??= Promise.all([600, 700, 800].map((w) => document.fonts.load(`${w} 64px 'Barlow Condensed'`)))
