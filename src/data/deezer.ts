@@ -54,12 +54,12 @@ function slot(): Promise<void> {
 }
 
 let seq = 0
-function jsonp<T>(path: string): Promise<T> {
+function jsonp<T>(path: string, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const name = `__dz${seq++}`
     const slots = window as unknown as Record<string, ((data: T) => void) | undefined>
     const s = document.createElement('script')
-    const timer = setTimeout(() => finish(new Error('timeout')), 15000)
+    const timer = setTimeout(() => finish(new Error('timeout')), ms)
     function finish(err: Error | null, data?: T) {
       clearTimeout(timer)
       delete slots[name]
@@ -69,26 +69,31 @@ function jsonp<T>(path: string): Promise<T> {
     }
     slots[name] = (data) => finish(null, data)
     s.onerror = () => finish(new Error('network'))
+    // Rodou sem chamar a resposta: veio outra coisa no lugar (uma página de aviso ou de bloqueio). Não adianta esperar.
+    s.onload = () => finish(new Error('not jsonp'))
     s.src = `${API}${path}${path.includes('?') ? '&' : '?'}output=jsonp&callback=${name}`
     document.head.appendChild(s)
   })
 }
 
-/** Um pedido à API, com uma nova tentativa se a rede falhar ou o limite de pedidos estourar. */
-async function call<T extends Failure>(path: string, tries = 3): Promise<T> {
+/**
+ * Um pedido à API, que espera a resposta até `ms`. Se a rede falhar ou o limite de pedidos estourar,
+ * tenta de novo, até `tries` vezes ao todo.
+ */
+async function call<T extends Failure>(path: string, tries = 3, ms = 15000): Promise<T> {
   await slot()
   let r: T
   try {
-    r = await jsonp<T>(path)
+    r = await jsonp<T>(path, ms)
   } catch (e) {
     if (tries <= 1) throw e
     await sleep(1500)
-    return call(path, tries - 1)
+    return call(path, tries - 1, ms)
   }
   const code = r.error?.code
   if (code === 4 && tries > 1) {
     await sleep(2500)
-    return call(path, tries - 1)
+    return call(path, tries - 1, ms)
   }
   // 800 = "nada encontrado": vale como resposta vazia.
   if (code === 800) return {} as T
@@ -215,9 +220,12 @@ export interface DzAlbum {
   cover: string
 }
 
-/** Álbuns que a busca do Deezer acha para o texto (artista e nome do álbum), os mais prováveis primeiro. */
+/**
+ * Álbuns que a busca do Deezer acha para o texto (artista e nome do álbum), os mais prováveis primeiro.
+ * Uma tentativa só, e curta: quem pede tem o MusicBrainz de reserva.
+ */
 export async function searchAlbums(q: string): Promise<DzAlbum[]> {
-  const r = await call<Page<RawAlbum>>(`/search/album?q=${encodeURIComponent(q)}&limit=10`)
+  const r = await call<Page<RawAlbum>>(`/search/album?q=${encodeURIComponent(q)}&limit=10`, 1, 6000)
   return (r.data ?? []).flatMap((a) => (a.cover_medium && a.artist ? [{ title: a.title, artist: a.artist.name, cover: a.cover_medium }] : []))
 }
 

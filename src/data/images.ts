@@ -1,9 +1,9 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import { searchAlbums } from './deezer'
+import { searchAlbums, type DzAlbum } from './deezer'
 
 /*
  * Fotos de artistas e podcasts vêm do Wikidata (imagem do Wikimedia Commons) e capas de
- * álbuns vêm do Deezer (ou, quando ele não acha, do MusicBrainz, com o Cover Art Archive).
+ * álbuns vêm do Deezer (ou, quando ele não acha ou falha, do MusicBrainz, com o Cover Art Archive).
  * Nenhum deles pede login. Só os nomes que aparecem na tela são buscados, e o resultado
  * fica guardado neste navegador.
  */
@@ -21,7 +21,10 @@ export interface AlbumRef {
 interface Entry {
   url: string | null
   at: number
-  /** 2: capa buscada também no Deezer. As que só o MusicBrainz procurou e não achou são buscadas de novo. */
+  /**
+   * 2: capa buscada também no Deezer. As de antes, que só o MusicBrainz procurou, são buscadas de novo:
+   * as imagens do Cover Art Archive demoram e às vezes falham, e a que já estava fica na tela enquanto isso.
+   */
   v?: number
 }
 
@@ -43,6 +46,11 @@ const listeners = new Set<() => void>()
 const inflight = new Map<string, Promise<string | null>>()
 /** Buscas que falharam por rede nesta visita: param de mostrar "carregando". */
 const failed = new Set<string>()
+/** Imagens que o navegador não conseguiu abrir nesta visita (até a rede voltar). */
+const broken = new Set<string>()
+/** Capas que não abriram e foram procuradas na outra fonte nesta visita, e as que estão sendo procuradas agora. */
+const swapped = new Set<string>()
+const swapping = new Set<string>()
 /** Buscas e downloads de imagem em andamento. */
 let working = 0
 
@@ -238,10 +246,34 @@ function cleanAlbum(album: string) {
 
 const lucene = (s: string) => s.replace(/[\\"]/g, '\\$&')
 
+/**
+ * Três falhas seguidas do Deezer (fora do ar, ou bloqueado na rede de quem usa) e as capas vão direto
+ * ao MusicBrainz por um minuto; depois, a próxima busca vê se ele voltou.
+ */
+const PAUSE_MS = 60_000
+let misses = 0
+let pausedUntil = 0
+const PAUSED = new Error('deezer paused')
+
+function askDeezer(q: string): Promise<DzAlbum[]> {
+  if (Date.now() < pausedUntil) return Promise.reject(PAUSED)
+  return searchAlbums(q).then(
+    (found) => {
+      misses = 0
+      return found
+    },
+    (e: unknown) => {
+      if (++misses >= 3) pausedUntil = Date.now() + PAUSE_MS
+      throw e
+    },
+  )
+}
+
 /** Álbum no Deezer: do mesmo artista e com o mesmo nome (ou o mesmo sem "Deluxe", "Remastered"…). */
 async function deezerCover(artist: string, album: string, level: Level): Promise<string | null> {
+  if (Date.now() < pausedUntil) throw PAUSED
   const title = cleanAlbum(album)
-  const found = await deezer(() => searchAlbums(`${artist} ${title}`), level)
+  const found = await deezer(() => askDeezer(`${artist} ${title}`), level)
   const mine = found.filter((a) => sameName(a.artist, artist))
   const hit = mine.find((a) => sameName(a.title, album)) ?? mine.find((a) => sameName(cleanAlbum(a.title), title))
   return hit?.cover ?? null
@@ -265,17 +297,31 @@ async function musicbrainzCover(artist: string, album: string, level: Level): Pr
   return g ? `https://coverartarchive.org/release-group/${g.id}/front-250` : null
 }
 
+/** A capa do MusicBrainz, guardada à parte: também serve de reserva quando a do Deezer não abre. */
+function mbCover(ref: AlbumRef, level: Level): Promise<string | null> {
+  const key = `mb:${keyOf(ref)}`
+  const hit = cached(key)
+  if (hit) return Promise.resolve(hit.url)
+  return musicbrainzCover(ref.artist, ref.album, level).then((url) => {
+    store(key, url)
+    return url
+  })
+}
+
 /** Capa de álbum: o Deezer responde rápido; o MusicBrainz (um pedido por segundo) fica para o que ele não achar. */
-async function findCover(artist: string, album: string, level: Level): Promise<string | null> {
+async function findCover(ref: AlbumRef, level: Level): Promise<string | null> {
   let failure: unknown = null
   try {
-    const url = await deezerCover(artist, album, level)
+    const url = await deezerCover(ref.artist, ref.album, level)
     if (url) return url
   } catch (e) {
     if (e === SKIPPED) throw e
     failure = e
   }
-  const url = await musicbrainzCover(artist, album, level)
+  // A capa guardada de antes já veio do MusicBrainz. Sem resposta do Deezer, ela fica e ele é tentado de novo da próxima vez.
+  const old = cache[keyOf(ref)]?.url
+  if (old && failure) throw failure
+  const url = old ?? (await mbCover(ref, level))
   // Sem resposta do Deezer, "não achei" não fica guardado: tenta de novo da próxima vez.
   if (!url && failure) throw failure
   return url
@@ -288,8 +334,8 @@ function keyOf(ref: ImageRef) {
 function cached(key: string): Entry | undefined {
   const e = cache[key]
   if (!e) return undefined
-  if (e.url) return e
   if (key.startsWith('album:') && !e.v) return undefined
+  if (e.url) return e
   return Date.now() - e.at < RETRY_MS ? e : undefined
 }
 
@@ -315,7 +361,7 @@ function lookup(ref: ImageRef): Promise<string | null> {
   if (!p) {
     failed.delete(key)
     const level = () => levelOf(key)
-    const job = ref.kind === 'album' ? findCover(ref.artist, ref.album, level) : findPhoto(ref.name, ref.kind === 'podcast', level)
+    const job = ref.kind === 'album' ? findCover(ref, level) : findPhoto(ref.name, ref.kind === 'podcast', level)
     p = tracked(
       job.then(
         (url) => {
@@ -369,13 +415,15 @@ function lookupKeys(keys: string): string[] {
   return out
 }
 
+const usable = (url: string | null | undefined) => (url && !broken.has(url) ? url : null)
+
 /** O que já se sabe: a foto, ou a capa reserva se a foto não existe. */
 function currentUrl(key: string): string | null {
   const ref = refs.get(key)
   if (!ref) return null
   const main = cache[key]
-  if (main?.url) return main.url
-  if (main && ref.kind !== 'album' && ref.fallback) return cache[keyOf(ref.fallback)]?.url ?? null
+  if (main?.url) return usable(main.url)
+  if (main && ref.kind !== 'album' && ref.fallback) return usable(cache[keyOf(ref.fallback)]?.url)
   return null
 }
 
@@ -406,6 +454,7 @@ export function useImages(list: (ImageRef | null | undefined)[], visible = true)
     const ks = lookupKeys(keys)
     bump(mounted, ks, 1)
     for (const k of keys.split(SEP)) if (k) ensure(k)
+    for (const k of ks) heal(k)
     return () => bump(mounted, ks, -1)
   }, [keys])
   useEffect(() => {
@@ -419,15 +468,16 @@ export function useImages(list: (ImageRef | null | undefined)[], visible = true)
 
 export const useImage = (ref: ImageRef | null | undefined, visible = true) => useImages([ref], visible)[0]
 
-/** Ainda buscando: não se sabe se tem foto (nem a capa reserva). */
+/** Ainda buscando: não se sabe se tem foto (nem a capa reserva), ou a capa que não abriu está sendo procurada na outra fonte. */
 function isWaiting(key: string): boolean {
   const ref = refs.get(key)
   if (!ref) return false
   const main = cached(key)
   if (!main) return !failed.has(key)
-  if (main.url || ref.kind === 'album' || !ref.fallback) return false
+  if (main.url) return swapping.has(key)
+  if (ref.kind === 'album' || !ref.fallback) return false
   const fk = keyOf(ref.fallback)
-  return !cached(fk) && !failed.has(fk)
+  return cached(fk) ? swapping.has(fk) : !failed.has(fk)
 }
 
 /** O endereço da imagem e se ela ainda está sendo buscada (para mostrar o cinza de "carregando"). */
@@ -437,6 +487,53 @@ export function useImageState(ref: ImageRef | null | undefined, visible = true):
   const waiting = useSyncExternalStore(subscribe, () => (key ? isWaiting(key) : false))
   return { url, waiting }
 }
+
+const isDeezer = (url: string) => /^https:\/\/[^/]+\.dzcdn\.net\//.test(url)
+
+/**
+ * Uma imagem que o navegador não conseguiu abrir sai de cena. As capas de álbum com ela vão atrás da
+ * mesma capa na outra fonte (do Deezer no MusicBrainz, ou o contrário), que fica no lugar dali em diante.
+ */
+export function imageFailed(url: string) {
+  if (broken.has(url)) return
+  broken.add(url)
+  for (const k of mounted.keys()) heal(k)
+  for (const l of listeners) l()
+}
+
+/** Se a capa guardada do álbum não abre, procura a da outra fonte (uma vez por visita). */
+function heal(key: string) {
+  const ref = refs.get(key)
+  const url = cache[key]?.url
+  if (ref?.kind !== 'album' || !url || !broken.has(url) || swapped.has(key)) return
+  swapped.add(key)
+  swapping.add(key)
+  // Fica na fila mesmo se a capa sair da página: a imagem que não abriu não volta a pedir.
+  const level = () => levelOf(key) || 1
+  const other = isDeezer(url) ? mbCover(ref, level) : deezerCover(ref.artist, ref.album, level)
+  tracked(other)
+    .then(
+      (u) => {
+        if (u && !broken.has(u) && cache[key]?.url === url) store(key, u)
+      },
+      () => {},
+    )
+    .finally(() => {
+      swapping.delete(key)
+      for (const l of listeners) l()
+    })
+}
+
+// A rede voltou: o que não abriu, ou não foi buscado por falta de rede, pode vir agora (e o Deezer volta a valer).
+if (typeof window !== 'undefined')
+  window.addEventListener('online', () => {
+    broken.clear()
+    swapped.clear()
+    misses = 0
+    pausedUntil = 0
+    for (const k of mounted.keys()) if (failed.has(k)) ensure(k)
+    for (const l of listeners) l()
+  })
 
 const dataUrls = new Map<string, Promise<string | null>>()
 const dataCache = new Map<string, string>()
@@ -469,8 +566,6 @@ function ensureData(url: string, fallback?: string): Promise<string | null> {
   return p
 }
 
-const isDeezer = (url: string) => /^https:\/\/[^/]+\.dzcdn\.net\//.test(url)
-
 /**
  * A mesma imagem em tamanho maior, para os stories (a tela de 1080 px de largura).
  * Se o tamanho maior não existir (foto original pequena), fica a de sempre.
@@ -501,15 +596,7 @@ function standIn(url: string) {
   standTried.add(url)
   const ref = albumOf(url)
   if (!ref) return
-  const key = `mb:${keyOf(ref)}`
-  const hit = cached(key)
-  const found = hit
-    ? Promise.resolve(hit.url)
-    : musicbrainzCover(ref.artist, ref.album, () => 2).then((u) => {
-        store(key, u)
-        return u
-      })
-  tracked(found).then(
+  tracked(mbCover(ref, () => 2)).then(
     (u) => {
       if (!u) return
       stand.set(url, u)

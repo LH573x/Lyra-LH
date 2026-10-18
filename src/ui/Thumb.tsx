@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { useImageState, type ImageRef } from '../data/images'
+import { imageFailed, useImageState, type ImageRef } from '../data/images'
 import { hue } from './format'
 
 // Um observador só para todas as fotos e capas: diz quais estão na tela (ou quase), para essas
@@ -39,21 +39,19 @@ interface ArtProps {
 
 /**
  * Foto ou capa. Enquanto busca ou baixa, um cinza que brilha ("esqueleto");
- * se não existir, a inicial num fundo colorido.
+ * se não existir (ou não abrir, nem a da outra fonte), a inicial num fundo colorido.
  */
 export function Art({ image, label, size, round, className = '', style }: ArtProps) {
   const [el, near] = useNear<HTMLSpanElement>()
   const { url, waiting } = useImageState(image, near)
-  const [failed, setFailed] = useState<string | null>(null)
   const [loaded, setLoaded] = useState<string | null>(null)
   const isRound = round ?? (image ? image.kind !== 'album' : false)
-  const show = url && failed !== url
-  const wait = waiting || (show && loaded !== url)
+  const wait = waiting || (url && loaded !== url)
   const css = { '--h': hue(label), ...(size ? { width: size, height: size } : {}), ...style } as CSSProperties
   return (
     <span ref={el} className={`art ${size ? '' : 'fill'} ${isRound ? 'round' : ''} ${wait ? 'wait' : ''} ${className}`} style={css} aria-hidden>
-      {show ? (
-        <img src={url} alt="" loading="lazy" referrerPolicy="no-referrer" onLoad={() => setLoaded(url)} onError={() => setFailed(url)} />
+      {url ? (
+        <img src={url} alt="" loading="lazy" referrerPolicy="no-referrer" onLoad={() => setLoaded(url)} onError={() => imageFailed(url)} />
       ) : waiting ? null : (
         <span className="art-initial">{label.trim().charAt(0).toUpperCase()}</span>
       )}
