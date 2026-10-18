@@ -2,7 +2,7 @@
 
 Site para explorar o histórico completo de escuta do Spotify: horas, artistas, músicas, podcasts e como tudo isso mudou ao longo dos anos.
 
-Os arquivos do export são lidos **no próprio navegador**. O histórico não é enviado para servidor nenhum, e nenhum dado pessoal fica neste repositório. Para mostrar fotos de artistas e capas de álbuns, o site procura só os nomes que aparecem na tela no [Wikidata](https://www.wikidata.org/) e no [MusicBrainz](https://musicbrainz.org/), e guarda o resultado no navegador.
+Os arquivos do export são lidos **no próprio navegador**. O histórico não é enviado para servidor nenhum, e nenhum dado pessoal fica neste repositório. Para mostrar fotos de artistas e capas de álbuns, o site procura só os nomes que aparecem na tela no [Wikidata](https://www.wikidata.org/), no [Deezer](https://www.deezer.com/) e no [MusicBrainz](https://musicbrainz.org/), e guarda o resultado no navegador.
 
 ## Como usar
 
