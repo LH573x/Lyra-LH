@@ -684,10 +684,8 @@ a {
 .error {
   color: var(--danger);
 }
-.privacy {
-  color: var(--muted);
-  font-size: 13px;
-  margin: 16px 0;
+.howto:first-of-type {
+  margin-top: 20px;
 }
 .howto {
   background: var(--surface);

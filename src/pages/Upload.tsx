@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { installGuide, useInstall } from '../ui/install'
 import { InstallGuide } from '../ui/InstallGuide'
 import { pick, t } from '../i18n'
+import { hasConcerts } from '../data/concerts'
 
 const tapToChoose = () => t('Toque para escolher o arquivo', 'Tap to choose the file', 'Toca para elegir el archivo')
 const installApp = () => t('Instalar o app', 'Install the app', 'Instalar la app')
@@ -109,14 +110,6 @@ export function Upload({ busy, error, notice, onFiles }: Props) {
           )}
         </div>
       )}
-
-      <p className="privacy">
-        {t(
-          'Seu histórico não sai deste aparelho: tudo é lido aqui mesmo no navegador. Para mostrar fotos, capas e descobertas, o site só procura nomes de artistas e álbuns no Wikidata, no MusicBrainz e no Deezer.',
-          'Your history never leaves this device: everything is read right here in the browser. To show photos, covers and discoveries, the site only looks up artist and album names in Wikidata, MusicBrainz and Deezer.',
-          'Tu historial no sale de este dispositivo: todo se lee aquí mismo, en el navegador. Para mostrar fotos, portadas y descubrimientos, el sitio solo busca nombres de artistas y álbumes en Wikidata, MusicBrainz y Deezer.',
-        )}
-      </p>
 
       <details className="howto">
         <summary>{t('Como conseguir meus dados do Spotify?', 'How do I get my Spotify data?', '¿Cómo consigo mis datos de Spotify?')}</summary>
@@ -245,6 +238,41 @@ export function Upload({ busy, error, notice, onFiles }: Props) {
             </li>
           </ol>,
         )}
+      </details>
+      <details className="howto">
+        <summary>{t('Como o app funciona?', 'How does the app work?', '¿Cómo funciona la app?')}</summary>
+        <ol>
+          <li>
+            {t(
+              'O arquivo é lido aqui mesmo, no navegador: seu histórico não vai para nenhum servidor.',
+              'The file is read right here in the browser: your history never goes to a server.',
+              'El archivo se lee aquí mismo, en el navegador: tu historial no va a ningún servidor.',
+            )}
+          </li>
+          <li>
+            {t(
+              'Ele fica guardado só neste aparelho, para você não precisar enviar de novo. Para apagar, use o botão de sair, no topo.',
+              "It's kept only on this device, so you don't have to upload it again. To delete it, use the leave button at the top.",
+              'Se guarda solo en este dispositivo, para que no tengas que subirlo de nuevo. Para borrarlo, usa el botón de salir, arriba.',
+            )}
+          </li>
+          <li>
+            {t(
+              'Para fotos, capas, prévias e descobertas, o site busca só nomes de artistas e álbuns no Wikidata, no MusicBrainz e no Deezer.',
+              'For photos, covers, previews and discoveries, the site only looks up artist and album names in Wikidata, MusicBrainz and Deezer.',
+              'Para fotos, portadas, avances y descubrimientos, el sitio solo busca nombres de artistas y álbumes en Wikidata, MusicBrainz y Deezer.',
+            )}
+          </li>
+          {hasConcerts() && (
+            <li>
+              {t(
+                'Para achar shows, o Ticketmaster recebe só a sua região e os nomes dos artistas.',
+                'To find gigs, Ticketmaster only gets your area and artist names.',
+                'Para encontrar conciertos, Ticketmaster solo recibe tu zona y los nombres de los artistas.',
+              )}
+            </li>
+          )}
+        </ol>
       </details>
     </main>
   )
