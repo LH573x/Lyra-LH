@@ -22,13 +22,14 @@ export interface Lineup {
 export const LINEUPS: Lineup[] = [
   {
     // itatiaia.com.br/cultura-e-lazer/primavera-sound-sp-anuncia-line-up-por-dia-veja-quem-toca-em-cada-data (21/07/2026)
+    // Nation of Language cancelou: rollingstone.com.br/musica/primavera-sound-sao-paulo-2026-confira-os-horarios-de-todos-os-shows (19/11/2026)
     // Vendido pela Ingresse, não pelo Ticketmaster. A arte é a do evento na Ingresse.
     match: 'Primavera Sound São Paulo',
     days: {
       '2026-12-05': [
-        'The Strokes', 'FKA twigs', 'Lily Allen', 'CMAT', 'Courtney Barnett', 'Danny L Harle', 'Nation of Language',
-        'Cara Delevingne', 'Zé Ibarra', 'John Talabot', 'Los Thuthanaka', 'Mannequin Pussy', 'Model/Actriz',
-        'Nick León', 'Black Pantera', 'Gab Ferreira', 'Johnny Hooker', 'Josyara', 'LARINHX', 'Metrika',
+        'The Strokes', 'FKA twigs', 'Lily Allen', 'CMAT', 'Courtney Barnett', 'Danny L Harle', 'Cara Delevingne',
+        'Zé Ibarra', 'John Talabot', 'Los Thuthanaka', 'Mannequin Pussy', 'Model/Actriz', 'Nick León',
+        'Black Pantera', 'Gab Ferreira', 'Johnny Hooker', 'Josyara', 'LARINHX', 'Metrika',
       ],
       '2026-12-06': [
         'Gorillaz', 'Arca', 'Yung Lean', 'underscores', 'Duquesa', 'Smerz', 'ATARASHII GAKKO!', 'Ecco2k',
